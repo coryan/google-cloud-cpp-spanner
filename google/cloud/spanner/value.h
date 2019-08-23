@@ -19,6 +19,7 @@
 #include "google/cloud/spanner/internal/tuple_utils.h"
 #include "google/cloud/spanner/timestamp.h"
 #include "google/cloud/spanner/version.h"
+#include "google/cloud/internal/invoke_result.h"
 #include "google/cloud/internal/throw_delegate.h"
 #include "google/cloud/optional.h"
 #include "google/cloud/status_or.h"
@@ -43,6 +44,9 @@ namespace internal {
 Value FromProto(google::spanner::v1::Type t, google::protobuf::Value v);
 std::pair<google::spanner::v1::Type, google::protobuf::Value> ToProto(Value v);
 }  // namespace internal
+
+template <typename T>
+struct NamedStructTraits;
 
 /**
  * The Value class represents a type-safe, nullable Spanner value.
@@ -281,6 +285,16 @@ class Value {
   explicit Value(std::tuple<Ts...> tup)
       : Value(PrivateConstructor{}, std::move(tup)) {}
 
+  // NamedStruct
+  template <typename NamedStruct,
+            typename std::enable_if<
+                google::cloud::internal::is_invocable<
+                    decltype(&NamedStructTraits<NamedStruct>::names)>::value,
+                int>::type = 0>
+  explicit Value(NamedStruct s)
+      : Value(PrivateConstructor{}, NamedStructTraits<NamedStruct>::names(),
+              std::move(s)) {}
+
   friend bool operator==(Value const& a, Value const& b);
   friend bool operator!=(Value const& a, Value const& b) { return !(a == b); }
 
@@ -404,6 +418,30 @@ class Value {
       *field->mutable_type() = MakeTypeProto(p.second);
     }
   };
+
+  // A functor to be used with internal::ForEach, adds type protos using
+  // separate names.
+  struct AddNamedStructTypes {
+    template <typename T>
+    void operator()(std::string const& name, T const& t,
+                    google::spanner::v1::StructType& struct_type) const {
+      auto* field = struct_type.add_fields();
+      field->set_name(name);
+      *field->mutable_type() = MakeTypeProto(t);
+    }
+  };
+
+  template <std::size_t N, typename... Ts>
+  static google::spanner::v1::Type MakeTypeProto(
+      std::array<std::string, N> names, std::tuple<Ts...> const& tup) {
+    static_assert(N == internal::NumElements<std::tuple<Ts...>>::value,
+                  "mismatched element vs. names count");
+    google::spanner::v1::Type t;
+    t.set_code(google::spanner::v1::TypeCode::STRUCT);
+    internal::ForEachNamed(names, tup, AddNamedStructTypes{},
+                           *t.mutable_struct_type());
+    return t;
+  }
 
   // Encodes the argument as a protobuf according to the rules described in
   // https://github.com/googleapis/googleapis/blob/master/google/spanner/v1/type.proto
@@ -544,6 +582,43 @@ class Value {
     }
   };
 
+  // NamedStruct
+  template <typename NamedStruct,
+      typename std::enable_if<
+          google::cloud::internal::is_invocable<
+              decltype(&NamedStructTraits<NamedStruct>::names)>::value,
+          int>::type = 0>
+  static StatusOr<NamedStruct> GetValue(NamedStruct const&, google::protobuf::Value const& pv, google::spanner::v1::Type const& pt) {
+    if (pv.kind_case() != google::protobuf::Value::kListValue) {
+      return Status(StatusCode::kUnknown, "missing STRUCT");
+    }
+    NamedStruct value;
+    Status status;  // OK
+    ExtractNamedTupleValues f{status, 0, pv.list_value(), pt};
+    internal::ForEachNamed(NamedStructTraits<NamedStruct>::names(), value, f);
+    if (!status.ok()) return status;
+    return value;
+  }
+
+  // A functor to be used with internal::ForEach (see below) to extract C++
+  // types from a ListValue proto and store then in a tuple.
+  struct ExtractNamedTupleValues {
+    Status& status;
+    std::size_t i;
+    google::protobuf::ListValue const& list_value;
+    google::spanner::v1::Type const& type;
+    template <typename T>
+    void operator()(std::string const&, T& t) {
+      auto value = GetValue(T{}, list_value.values(i), type);
+      ++i;
+      if (!value) {
+        status = std::move(value).status();
+      } else {
+        t = *std::move(value);
+      }
+    }
+  };
+
   static bool EqualTypeProtoIgnoringNames(google::spanner::v1::Type const& a,
                                           google::spanner::v1::Type const& b);
 
@@ -557,6 +632,11 @@ class Value {
   template <typename T>
   explicit Value(PrivateConstructor, T&& t)
       : type_(MakeTypeProto(t)), value_(MakeValueProto(std::forward<T>(t))) {}
+
+  template <typename T, std::size_t N>
+  explicit Value(PrivateConstructor, std::array<std::string, N> names, T&& t)
+      : type_(MakeTypeProto(names, t)),
+        value_(MakeValueProto(std::forward<T>(t))) {}
 
   explicit Value(google::spanner::v1::Type t, google::protobuf::Value v)
       : type_(std::move(t)), value_(std::move(v)) {}

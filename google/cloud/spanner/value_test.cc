@@ -16,8 +16,10 @@
 #include "google/cloud/spanner/internal/base64.h"
 #include "google/cloud/spanner/internal/date.h"
 #include "google/cloud/spanner/internal/time.h"
+#include "google/cloud/spanner/testing/matchers.h"
 #include "google/cloud/optional.h"
 #include "google/cloud/testing_util/assert_ok.h"
+#include <google/protobuf/text_format.h>
 #include <gmock/gmock.h>
 #include <cmath>
 #include <limits>
@@ -26,10 +28,28 @@
 #include <type_traits>
 #include <vector>
 
+namespace {
+ struct SingerInfo : public std::tuple<std::string, std::string, google::cloud::spanner::Date> {
+  using std::tuple<std::string, std::string, google::cloud::spanner::Date>::tuple;
+};
+}
+
+namespace std {
+template<>
+ struct tuple_size<SingerInfo> {
+   static constexpr std::size_t value = 3;
+ };
+
+}
+
+
 namespace google {
 namespace cloud {
 namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
+
+using ::google::cloud::spanner_testing::IsProtoEqual;
+using ::google::protobuf::TextFormat;
 
 template <typename T>
 void TestBasicSemantics(T init) {
@@ -759,6 +779,102 @@ TEST(Value, GetBadStruct) {
 
   SetProtoKind(v, "blah");
   EXPECT_FALSE(v.get<std::tuple<bool>>().ok());
+}
+
+template <>
+struct NamedStructTraits<SingerInfo> {
+  // NOLINTNEXTLINE
+  static std::array<std::string, 3> names() {
+    return {"FirstName", "LastName", "Birthday"};
+  }
+};
+
+TEST(Value, NamedStruct) {
+  SingerInfo info{"Elena", "Campbell", Date(1970, 01, 01)};
+  Value actual(info);
+
+  using OldInfo = std::tuple<std::pair<std::string, std::string>,
+                             std::pair<std::string, std::string>,
+                             std::pair<std::string, Date>>;
+
+  Value expected(OldInfo{{"FirstName", "Elena"},
+                         {"LastName", "Campbell"},
+                         {"Birthday", Date(1970, 01, 01)}});
+  EXPECT_EQ(expected, actual);
+}
+
+TEST(Value, NamedStructToProto) {
+  Value v(SingerInfo{"Elena", "Campbell", Date(1970, 01, 01)});
+  auto const p = internal::ToProto(v);
+  EXPECT_EQ(v, internal::FromProto(p.first, p.second));
+  EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
+
+  google::spanner::v1::Type expected_type;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        code: STRUCT
+        struct_type {
+          fields {
+            name: "FirstName"
+            type { code: STRING }
+          }
+          fields {
+            name: "LastName"
+            type { code: STRING }
+          }
+          fields {
+            name: "Birthday"
+            type { code: DATE }
+          }
+        })pb",
+      &expected_type));
+  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
+
+  google::protobuf::Value expected_value;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        list_value {
+          values { string_value: "Elena" }
+          values { string_value: "Campbell" }
+          values { string_value: "1970-01-01" }
+        })pb",
+      &expected_value));
+  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+}
+
+TEST(Value, NamedStructArray) {
+  std::vector<SingerInfo> array{
+      {"Elena", "Campbell", Date(1970, 01, 01)},
+      {"Gabriel", "Wright", Date(1980, 02, 02)},
+  };
+  Value v(array);
+  auto extracted = v.get<std::vector<SingerInfo>>();
+  EXPECT_STATUS_OK(extracted);
+  EXPECT_EQ(array, *extracted);
+
+  auto const p = internal::ToProto(v);
+
+  google::protobuf::Value expected_value;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        list_value {
+          values {
+            list_value {
+              values { string_value: "Elena" }
+              values { string_value: "Campbell" }
+              values { string_value: "1970-01-01" }
+            }
+          }
+          values {
+            list_value {
+              values { string_value: "Gabriel" }
+              values { string_value: "Wright" }
+              values { string_value: "1980-02-02" }
+            }
+          }
+        })pb",
+      &expected_value));
+  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
 }
 
 }  // namespace SPANNER_CLIENT_NS

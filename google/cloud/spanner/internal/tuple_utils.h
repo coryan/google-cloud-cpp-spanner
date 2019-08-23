@@ -34,13 +34,15 @@ namespace internal {
 //     assert(NumElements<Type>::value == 3);
 //
 template <typename T>
-struct NumElementsImpl;
+struct NumElementsImpl : public std::tuple_size<T> {};
+
 template <template <typename...> class T, typename... Ts>
 struct NumElementsImpl<T<Ts...>> {
   static const std::size_t value = sizeof...(Ts);
 };
 template <template <typename...> class T, typename... Ts>
 std::size_t const NumElementsImpl<T<Ts...>>::value;  // Declares storage
+
 template <typename T>
 using NumElements = NumElementsImpl<typename std::decay<T>::type>;
 
@@ -90,6 +92,23 @@ typename std::enable_if<(I < NumElements<T>::value), void>::type ForEach(
   std::forward<F>(f)(std::forward<decltype(e)>(e), std::forward<Args>(args)...);
   ForEach<I + 1>(std::forward<T>(t), std::forward<F>(f),
                  std::forward<Args>(args)...);
+}
+
+template <std::size_t I = 0, std::size_t N, typename T, typename F,
+          typename... Args>
+typename std::enable_if<I == NumElements<T>::value, void>::type ForEachNamed(
+    std::array<std::string, N> const&, T&&, F&&, Args&&...) {}
+
+template <std::size_t I = 0, std::size_t N, typename T, typename F,
+          typename... Args>
+typename std::enable_if<(I < internal::NumElements<T>::value), void>::type
+ForEachNamed(std::array<std::string, N> const& names, T&& t, F&& f,
+             Args&&... args) {
+  auto&& e = internal::GetElement<I>(std::forward<T>(t));
+  std::forward<F>(f)(names[I], std::forward<decltype(e)>(e),
+                     std::forward<Args>(args)...);
+  ForEachNamed<I + 1>(names, std::forward<T>(t), std::forward<F>(f),
+                      std::forward<Args>(args)...);
 }
 
 }  // namespace internal
