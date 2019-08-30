@@ -29,45 +29,53 @@ struct NamedStructViaMembers {
   constexpr char const* get_field_name() const {
     if constexpr (N == 0) {
       return "id";
-    } else if constexpr (N == 1) {
+    }
+    if constexpr (N == 1) {
       return "first_name";
-    } else if constexpr (N == 2) {
+    }
+    if constexpr (N == 2) {
       return "last_name";
     }
     static_assert(N <= 2);
   }
 
   template <std::size_t N>
-  constexpr auto get() const& {
+  constexpr auto const& get() const& {
     if constexpr (N == 0) {
       return id;
-    } else if constexpr (N == 1) {
+    }
+    if constexpr (N == 1) {
       return first_name;
-    } else if constexpr (N == 2) {
+    }
+    if constexpr (N == 2) {
       return last_name;
     }
     static_assert(N <= 2);
   }
 
   template <std::size_t N>
-  constexpr auto get() && {
+  constexpr auto&& get() && {
     if constexpr (N == 0) {
       return id;
-    } else if constexpr (N == 1) {
+    }
+    if constexpr (N == 1) {
       return std::move(first_name);
-    } else if constexpr (N == 2) {
+    }
+    if constexpr (N == 2) {
       return std::move(last_name);
     }
     static_assert(N <= 2);
   }
 
   template <std::size_t N>
-  constexpr auto get() & {
+  constexpr auto& get() & {
     if constexpr (N == 0) {
       return id;
-    } else if constexpr (N == 1) {
+    }
+    if constexpr (N == 1) {
       return first_name;
-    } else if constexpr (N == 2) {
+    }
+    if constexpr (N == 2) {
       return last_name;
     }
     static_assert(N <= 2);
@@ -103,34 +111,17 @@ auto GetElement(NamedStructViaAdl const& v)
   return std::get<N>(std::tie(v.id, v.first_name, v.last_name));
 }
 
-#if 0
-template <>
-std::int64_t& get<0>(NamedStructViaAdl && v) {
-  return v.id;
-}
-template <>
-std::string&& get<1>(NamedStructViaAdl && v) {
-  return std::move(v.first_name);
-}
-template <>
-std::string&& get<2>(NamedStructViaAdl && v) {
-  return std::move(v.last_name);
+template <std::size_t N>
+auto GetElement(NamedStructViaAdl&& v)
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name))) {
+  return std::get<N>(std::tie(v.id, v.first_name, v.last_name));
 }
 
-template <>
-std::int64_t& get<0>(NamedStructViaAdl & v) {
-  return v.id;
+template <std::size_t N>
+auto GetElement(NamedStructViaAdl& v)
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name))) {
+  return std::get<N>(std::tie(v.id, v.first_name, v.last_name));
 }
-
-template <>
-std::string& get<1>(NamedStructViaAdl & v) {
-  return v.first_name;
-}
-template <>
-std::string& get<2>(NamedStructViaAdl & v) {
-  return v.last_name;
-}
-#endif
 }  // namespace ns1
 
 namespace std {
@@ -265,6 +256,34 @@ TEST(TupleUtils, GetElement_ViaMembers) {
   EXPECT_EQ(1, GetElement<0>(tested));
   EXPECT_EQ("fname-1", GetElement<1>(tested));
   EXPECT_EQ("lname-1", GetElement<2>(tested));
+}
+
+TEST(TupleUtils, GetElementMove_ViaAdl) {
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
+  using internal::GetElement;
+  auto actual = GetElement<1>(std::move(tested));
+  EXPECT_EQ("fname-1", actual);
+}
+
+TEST(TupleUtils, GetElementMove_ViaMembers) {
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
+  using internal::GetElement;
+  auto actual = GetElement<1>(std::move(tested));
+  EXPECT_EQ("fname-1", actual);
+}
+
+TEST(TupleUtils, GetElementAssign_ViaAdl) {
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
+  using internal::GetElement;
+  GetElement<1>(tested) = "updated";
+  EXPECT_EQ("updated", tested.first_name);
+}
+
+TEST(TupleUtils, GetElementAssign_ViaMembers) {
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
+  using internal::GetElement;
+  GetElement<1>(tested) = "updated";
+  EXPECT_EQ("updated", tested.first_name);
 }
 
 #if 0
