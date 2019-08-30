@@ -29,19 +29,22 @@
 #include <vector>
 
 namespace {
- struct SingerInfo : public std::tuple<std::string, std::string, google::cloud::spanner::Date> {
-  using std::tuple<std::string, std::string, google::cloud::spanner::Date>::tuple;
+
+struct SingerInfo : public std::tuple<std::string, std::string,
+                                      google::cloud::spanner::Date> {
+  using std::tuple<std::string, std::string,
+                   google::cloud::spanner::Date>::tuple;
 };
-}
+
+}  // namespace
 
 namespace std {
-template<>
- struct tuple_size<SingerInfo> {
-   static constexpr std::size_t value = 3;
- };
+template <>
+struct tuple_size<SingerInfo> {
+  static constexpr std::size_t value = 3;
+};
 
-}
-
+}  // namespace std
 
 namespace google {
 namespace cloud {
@@ -875,6 +878,13 @@ TEST(Value, NamedStructArray) {
         })pb",
       &expected_value));
   EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+}
+
+TEST(Value, NamedStructViaMembers_GetFieldName) {
+  NamedStructViaAdl tested{1, "fname-1", "fname-2"};
+  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
+  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
+  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
 }
 
 }  // namespace SPANNER_CLIENT_NS

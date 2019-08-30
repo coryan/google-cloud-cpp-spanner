@@ -25,6 +25,36 @@ namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
 namespace internal {
 
+/**
+ * Get the field names for a NameStruct.
+ *
+ * This version gets the field name using a template member function
+ * `get_field_name<N>()`, but we always use this function through the
+ * GetFieldName adapter, so applications can define the function in their own
+ * namespace.
+ */
+template <std::size_t N, typename T>
+auto get_field_name(T const& t) -> decltype(t.template get_field_name<N>()) {
+  return t.template get_field_name<N>();
+}
+
+/**
+ * A metafunction that returns the name of each field in a named structure.
+ *
+ * @tparam N the index of the field
+ * @tparam NamedStruct the type of the named struct.
+ * @param s the named structure value, typically unused.
+ */
+template <std::size_t N, typename NamedStruct/*,
+          typename std::enable_if<google::cloud::internal::is_invocable<
+                                      decltype(&NamedStruct::get_field_name),
+                                      NamedStruct const&>::value,
+                                  int>::type = 0*/>
+auto GetFieldName(NamedStruct const& s)
+-> decltype(get_field_name<N>(std::declval<NamedStruct const&>())) {
+  return get_field_name<N>(s);
+}
+
 // A metafunction that returns the number of elements in any class template
 // that takes a variable number of arguments.
 //
@@ -97,17 +127,16 @@ typename std::enable_if<(I < NumElements<T>::value), void>::type ForEach(
 template <std::size_t I = 0, std::size_t N, typename T, typename F,
           typename... Args>
 typename std::enable_if<I == NumElements<T>::value, void>::type ForEachNamed(
-    std::array<std::string, N> const&, T&&, F&&, Args&&...) {}
+    T&&, F&&, Args&&...) {}
 
 template <std::size_t I = 0, std::size_t N, typename T, typename F,
           typename... Args>
 typename std::enable_if<(I < internal::NumElements<T>::value), void>::type
-ForEachNamed(std::array<std::string, N> const& names, T&& t, F&& f,
-             Args&&... args) {
+ForEachNamed(T&& t, F&& f, Args&&... args) {
   auto&& e = internal::GetElement<I>(std::forward<T>(t));
-  std::forward<F>(f)(names[I], std::forward<decltype(e)>(e),
+  std::forward<F>(f)(internal::GetFieldName<I>(t), std::forward<decltype(e)>(e),
                      std::forward<Args>(args)...);
-  ForEachNamed<I + 1>(names, std::forward<T>(t), std::forward<F>(f),
+  ForEachNamed<I + 1>(std::forward<T>(t), std::forward<F>(f),
                       std::forward<Args>(args)...);
 }
 

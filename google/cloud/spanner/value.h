@@ -45,9 +45,6 @@ Value FromProto(google::spanner::v1::Type t, google::protobuf::Value v);
 std::pair<google::spanner::v1::Type, google::protobuf::Value> ToProto(Value v);
 }  // namespace internal
 
-template <typename T>
-struct NamedStructTraits;
-
 /**
  * The Value class represents a type-safe, nullable Spanner value.
  *
@@ -289,11 +286,10 @@ class Value {
   template <typename NamedStruct,
             typename std::enable_if<
                 google::cloud::internal::is_invocable<
-                    decltype(&NamedStructTraits<NamedStruct>::names)>::value,
+                    decltype(internal::GetFieldName<0, NamedStruct>), NamedStruct const&>::value,
                 int>::type = 0>
   explicit Value(NamedStruct s)
-      : Value(PrivateConstructor{}, NamedStructTraits<NamedStruct>::names(),
-              std::move(s)) {}
+      : Value(NamedStructConstructor{}, std::move(s)) {}
 
   friend bool operator==(Value const& a, Value const& b);
   friend bool operator!=(Value const& a, Value const& b) { return !(a == b); }
@@ -583,19 +579,17 @@ class Value {
   };
 
   // NamedStruct
-  template <typename NamedStruct,
-      typename std::enable_if<
-          google::cloud::internal::is_invocable<
-              decltype(&NamedStructTraits<NamedStruct>::names)>::value,
-          int>::type = 0>
-  static StatusOr<NamedStruct> GetValue(NamedStruct const&, google::protobuf::Value const& pv, google::spanner::v1::Type const& pt) {
+  template <typename NamedStruct>
+  static StatusOr<NamedStruct> GetValueNamedStruct(NamedStruct const&,
+                                        google::protobuf::Value const& pv,
+                                        google::spanner::v1::Type const& pt) {
     if (pv.kind_case() != google::protobuf::Value::kListValue) {
       return Status(StatusCode::kUnknown, "missing STRUCT");
     }
     NamedStruct value;
     Status status;  // OK
     ExtractNamedTupleValues f{status, 0, pv.list_value(), pt};
-    internal::ForEachNamed(NamedStructTraits<NamedStruct>::names(), value, f);
+    internal::ForEachNamed(value, f);
     if (!status.ok()) return status;
     return value;
   }
@@ -629,14 +623,18 @@ class Value {
   // apply after overload resolution, users could get weird error messages if
   // this constructor matched their arguments best.
   struct PrivateConstructor {};
+
   template <typename T>
   explicit Value(PrivateConstructor, T&& t)
       : type_(MakeTypeProto(t)), value_(MakeValueProto(std::forward<T>(t))) {}
 
+
+  struct NamedStructConstructor {};
   template <typename T, std::size_t N>
-  explicit Value(PrivateConstructor, std::array<std::string, N> names, T&& t)
-      : type_(MakeTypeProto(names, t)),
+  explicit Value(NamedStructConstructor, T&& t)
+      : type_(MakeTypeProtoNamedStruct(t)),
         value_(MakeValueProto(std::forward<T>(t))) {}
+
 
   explicit Value(google::spanner::v1::Type t, google::protobuf::Value v)
       : type_(std::move(t)), value_(std::move(v)) {}

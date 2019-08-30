@@ -17,6 +17,82 @@
 #include <string>
 #include <vector>
 
+namespace ns1 {
+struct NamedStructViaAdl {
+  std::int64_t id;
+  std::string first_name;
+  std::string last_name;
+};
+
+template <std::size_t N>
+char const* get_field_name(NamedStructViaAdl const&);
+
+template <>
+char const* get_field_name<0>(NamedStructViaAdl const&) {
+  return "id";
+}
+template <>
+char const* get_field_name<1>(NamedStructViaAdl const&) {
+  return "first_name";
+}
+template <>
+char const* get_field_name<2>(NamedStructViaAdl const&) {
+  return "last_name";
+}
+
+#if 0
+template <std::size_t N, typename T, typename U>
+T get(U);
+
+template <>
+std::int64_t get<0>(NamedStructViaAdl const& v) {
+  return v.id;
+}
+template <>
+std::string const& get<1>(NamedStructViaAdl const& v) {
+  return v.first_name;
+}
+template <>
+std::string const& get<2>(NamedStructViaAdl const& v) {
+  return v.last_name;
+}
+
+template <>
+std::int64_t& get<0>(NamedStructViaAdl && v) {
+  return v.id;
+}
+template <>
+std::string&& get<1>(NamedStructViaAdl && v) {
+  return std::move(v.first_name);
+}
+template <>
+std::string&& get<2>(NamedStructViaAdl && v) {
+  return std::move(v.last_name);
+}
+
+template <>
+std::int64_t& get<0>(NamedStructViaAdl & v) {
+  return v.id;
+}
+
+template <>
+std::string& get<1>(NamedStructViaAdl & v) {
+  return v.first_name;
+}
+template <>
+std::string& get<2>(NamedStructViaAdl & v) {
+  return v.last_name;
+}
+#endif
+}  // namespace ns1
+
+namespace std {
+template <>
+struct tuple_size<::ns1::NamedStructViaAdl> {
+  static constexpr std::size_t value = 3;
+};
+}  // namespace std
+
 namespace google {
 namespace cloud {
 namespace spanner {
@@ -27,6 +103,13 @@ TEST(TupleUtils, NumElements) {
   EXPECT_EQ(internal::NumElements<std::tuple<>>::value, 0);
   EXPECT_EQ(internal::NumElements<std::tuple<int>>::value, 1);
   EXPECT_EQ((internal::NumElements<std::tuple<int, int>>::value), 2);
+
+  // Verify that NumElement works for tuple-like things that specialize
+  // `std::tuple_size<>`, this should become common for C++17 as developers use
+  // structured bindings
+  // Use a local variable because EXPECT_EQ() takes the address, sigh...
+  auto avoid_odr_use = internal::NumElements<ns1::NamedStructViaAdl>::value;
+  EXPECT_EQ(avoid_odr_use, 3);
 }
 
 // Helper functor used to test the `ForEach` function. Uses a templated
@@ -74,6 +157,13 @@ TEST(TupleUtils, ForEachStruct) {
   std::vector<std::string> v;
   internal::ForEach(not_a_tuple, Stringify{}, v);
   EXPECT_THAT(v, testing::ElementsAre("1", "42"));
+}
+
+TEST(TupleUtils, GetFieldName_ViaAdl) {
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "fname-2"};
+  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
+  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
+  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
 }
 
 }  // namespace SPANNER_CLIENT_NS
