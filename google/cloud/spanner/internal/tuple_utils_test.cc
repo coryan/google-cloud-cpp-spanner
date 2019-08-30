@@ -25,7 +25,7 @@ struct NamedStructViaMembers {
   std::string first_name;
   std::string last_name;
 
-  template<std::size_t N>
+  template <std::size_t N>
   constexpr char const* get_field_name() const {
     if constexpr (N == 0) {
       return "id";
@@ -33,6 +33,42 @@ struct NamedStructViaMembers {
       return "first_name";
     } else if constexpr (N == 2) {
       return "last_name";
+    }
+    static_assert(N <= 2);
+  }
+
+  template <std::size_t N>
+  constexpr auto get() const & {
+    if constexpr (N == 0) {
+      return id;
+    } else if constexpr (N == 1) {
+      return first_name;
+    } else if constexpr (N == 2) {
+      return last_name;
+    }
+    static_assert(N <= 2);
+  }
+
+  template <std::size_t N>
+  constexpr auto get() && {
+    if constexpr (N == 0) {
+      return id;
+    } else if constexpr (N == 1) {
+      return std::move(first_name);
+    } else if constexpr (N == 2) {
+      return std::move(last_name);
+    }
+    static_assert(N <= 2);
+  }
+
+  template <std::size_t N>
+  constexpr auto get() & {
+    if constexpr (N == 0) {
+      return id;
+    } else if constexpr (N == 1) {
+      return first_name;
+    } else if constexpr (N == 2) {
+      return last_name;
     }
     static_assert(N <= 2);
   }
@@ -112,6 +148,13 @@ template <>
 struct tuple_size<::ns1::NamedStructViaAdl> {
   static constexpr std::size_t value = 3;
 };
+
+#if __cplusplus == 201703L
+template <>
+struct tuple_size<::ns1::NamedStructViaMembers> {
+  static constexpr std::size_t value = 3;
+};
+#endif  // __cplusplus == 201703L
 }  // namespace std
 
 namespace google {
@@ -138,6 +181,16 @@ TEST(TupleUtils, NumElements) {
 struct Stringify {
   template <typename T>
   void operator()(T const& t, std::vector<std::string>& out) const {
+    out.push_back(std::to_string(t));
+  }
+};
+
+// Helper functor used to test the `ForEachNamed` function.
+struct StringifyNamed {
+  template <typename T>
+  void operator()(std::string const& field_name, T const& t,
+                  std::vector<std::string>& out) const {
+    out.push_back(field_name);
     out.push_back(std::to_string(t));
   }
 };
@@ -181,18 +234,42 @@ TEST(TupleUtils, ForEachStruct) {
 }
 
 TEST(TupleUtils, GetFieldName_ViaAdl) {
-  ::ns1::NamedStructViaAdl tested{1, "fname-1", "fname-2"};
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
   EXPECT_EQ("id", internal::GetFieldName<0>(tested));
   EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
   EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
 }
 
 TEST(TupleUtils, GetFieldName_ViaMembers) {
-  ::ns1::NamedStructViaMembers tested{1, "fname-1", "fname-2"};
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
   EXPECT_EQ("id", internal::GetFieldName<0>(tested));
   EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
   EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
 }
+
+TEST(TupleUtils, NumElements_ViaAdl) {
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
+  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
+  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
+  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+}
+
+TEST(TupleUtils, NumElements_ViaMembers) {
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
+  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
+  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
+  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+}
+
+#if 0
+TEST(TupleUtils, ForEachNamed_ViaMembers) {
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
+  std::vector<std::string> v;
+  internal::ForEachNamed(tested, StringifyNamed{}, v);
+  EXPECT_THAT(v, testing::ElementsAre("id", "1", "first_name", "fname-1",
+                                      "last_name", "lname-1"));
+}
+#endif
 
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner

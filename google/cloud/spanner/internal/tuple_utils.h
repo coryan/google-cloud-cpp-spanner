@@ -86,6 +86,12 @@ auto GetElement(Tup&& tup) -> decltype(std::get<I>(std::forward<Tup>(tup))) {
   return get<I>(std::forward<Tup>(tup));
 }
 
+/// Used if `Tup` provides `.get<I>()` accessors.
+template <std::size_t I, typename Tup, typename...>
+auto GetElement(Tup&& tup) -> decltype(tup.template get<I>()) {
+  return tup.template get<I>();
+}
+
 // Base case of `ForEach` that is called at the end of iterating a tuple.
 // See the docs for the next overload to see how to use `ForEach`.
 template <std::size_t I = 0, typename T, typename F, typename... Args>
@@ -131,10 +137,10 @@ typename std::enable_if<I == NumElements<T>::value, void>::type ForEachNamed(
 
 template <std::size_t I = 0, std::size_t N, typename T, typename F,
           typename... Args>
-typename std::enable_if<(I < internal::NumElements<T>::value), void>::type
-ForEachNamed(T&& t, F&& f, Args&&... args) {
-  auto&& e = internal::GetElement<I>(std::forward<T>(t));
-  std::forward<F>(f)(internal::GetFieldName<I>(t), std::forward<decltype(e)>(e),
+typename std::enable_if<(I < NumElements<T>::value), void>::type ForEachNamed(
+    T&& t, F&& f, Args&&... args) {
+  auto&& e = GetElement<I>(std::forward<T>(t));
+  std::forward<F>(f)(GetFieldName<I>(t), std::forward<decltype(e)>(e),
                      std::forward<Args>(args)...);
   ForEachNamed<I + 1>(std::forward<T>(t), std::forward<F>(f),
                       std::forward<Args>(args)...);
