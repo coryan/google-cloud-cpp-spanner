@@ -18,6 +18,27 @@
 #include <vector>
 
 namespace ns1 {
+
+#if __cplusplus == 201703L
+struct NamedStructViaMembers {
+  std::int64_t id;
+  std::string first_name;
+  std::string last_name;
+
+  template<std::size_t N>
+  constexpr char const* get_field_name() const {
+    if constexpr (N == 0) {
+      return "id";
+    } else if constexpr (N == 1) {
+      return "first_name";
+    } else if constexpr (N == 2) {
+      return "last_name";
+    }
+    static_assert(N <= 2);
+  }
+};
+#endif  // __cplusplus == 201703L
+
 struct NamedStructViaAdl {
   std::int64_t id;
   std::string first_name;
@@ -161,6 +182,13 @@ TEST(TupleUtils, ForEachStruct) {
 
 TEST(TupleUtils, GetFieldName_ViaAdl) {
   ::ns1::NamedStructViaAdl tested{1, "fname-1", "fname-2"};
+  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
+  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
+  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+}
+
+TEST(TupleUtils, GetFieldName_ViaMembers) {
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "fname-2"};
   EXPECT_EQ("id", internal::GetFieldName<0>(tested));
   EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
   EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
