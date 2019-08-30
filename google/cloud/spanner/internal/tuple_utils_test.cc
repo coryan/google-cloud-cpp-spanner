@@ -38,7 +38,7 @@ struct NamedStructViaMembers {
   }
 
   template <std::size_t N>
-  constexpr auto get() const & {
+  constexpr auto get() const& {
     if constexpr (N == 0) {
       return id;
     } else if constexpr (N == 1) {
@@ -97,23 +97,13 @@ char const* get_field_name<2>(NamedStructViaAdl const&) {
   return "last_name";
 }
 
+template <std::size_t N>
+auto GetElement(NamedStructViaAdl const& v)
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name))) {
+  return std::get<N>(std::tie(v.id, v.first_name, v.last_name));
+}
+
 #if 0
-template <std::size_t N, typename T, typename U>
-T get(U);
-
-template <>
-std::int64_t get<0>(NamedStructViaAdl const& v) {
-  return v.id;
-}
-template <>
-std::string const& get<1>(NamedStructViaAdl const& v) {
-  return v.first_name;
-}
-template <>
-std::string const& get<2>(NamedStructViaAdl const& v) {
-  return v.last_name;
-}
-
 template <>
 std::int64_t& get<0>(NamedStructViaAdl && v) {
   return v.id;
@@ -259,6 +249,22 @@ TEST(TupleUtils, NumElements_ViaMembers) {
   EXPECT_EQ("id", internal::GetFieldName<0>(tested));
   EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
   EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+}
+
+TEST(TupleUtils, GetElement_ViaAdl) {
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
+  using internal::GetElement;
+  EXPECT_EQ(1, GetElement<0>(tested));
+  EXPECT_EQ("fname-1", GetElement<1>(tested));
+  EXPECT_EQ("lname-1", GetElement<2>(tested));
+}
+
+TEST(TupleUtils, GetElement_ViaMembers) {
+  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
+  using internal::GetElement;
+  EXPECT_EQ(1, GetElement<0>(tested));
+  EXPECT_EQ("fname-1", GetElement<1>(tested));
+  EXPECT_EQ("lname-1", GetElement<2>(tested));
 }
 
 #if 0
