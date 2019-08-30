@@ -130,13 +130,11 @@ typename std::enable_if<(I < NumElements<T>::value), void>::type ForEach(
                  std::forward<Args>(args)...);
 }
 
-template <std::size_t I = 0, std::size_t N, typename T, typename F,
-          typename... Args>
+template <std::size_t I = 0, typename T, typename F, typename... Args>
 typename std::enable_if<I == NumElements<T>::value, void>::type ForEachNamed(
     T&&, F&&, Args&&...) {}
 
-template <std::size_t I = 0, std::size_t N, typename T, typename F,
-          typename... Args>
+template <std::size_t I = 0, typename T, typename F, typename... Args>
 typename std::enable_if<(I < NumElements<T>::value), void>::type ForEachNamed(
     T&& t, F&& f, Args&&... args) {
   auto&& e = GetElement<I>(std::forward<T>(t));

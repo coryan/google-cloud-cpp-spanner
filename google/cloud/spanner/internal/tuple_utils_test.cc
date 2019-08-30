@@ -174,6 +174,11 @@ struct StringifyNamed {
     out.push_back(field_name);
     out.push_back(std::to_string(t));
   }
+  void operator()(std::string const& field_name, std::string const& t,
+                  std::vector<std::string>& out) const {
+    out.push_back(field_name);
+    out.push_back(t);
+  }
 };
 
 TEST(TupleUtils, ForEachMultipleTypes) {
@@ -286,7 +291,14 @@ TEST(TupleUtils, GetElementAssign_ViaMembers) {
   EXPECT_EQ("updated", tested.first_name);
 }
 
-#if 0
+TEST(TupleUtils, ForEachNamed_ViaAdl) {
+  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
+  std::vector<std::string> v;
+  internal::ForEachNamed(tested, StringifyNamed{}, v);
+  EXPECT_THAT(v, testing::ElementsAre("id", "1", "first_name", "fname-1",
+                                      "last_name", "lname-1"));
+}
+
 TEST(TupleUtils, ForEachNamed_ViaMembers) {
   ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
   std::vector<std::string> v;
@@ -294,7 +306,6 @@ TEST(TupleUtils, ForEachNamed_ViaMembers) {
   EXPECT_THAT(v, testing::ElementsAre("id", "1", "first_name", "fname-1",
                                       "last_name", "lname-1"));
 }
-#endif
 
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner
