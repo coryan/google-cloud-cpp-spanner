@@ -248,7 +248,7 @@ TEST(TupleUtils, NumElements_ViaMembers) {
 }
 
 TEST(TupleUtils, GetElement_ViaAdl) {
-  ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
+  ::ns1::NamedStructViaAdl const tested{1, "fname-1", "lname-1"};
   using internal::GetElement;
   EXPECT_EQ(1, GetElement<0>(tested));
   EXPECT_EQ("fname-1", GetElement<1>(tested));
@@ -256,7 +256,7 @@ TEST(TupleUtils, GetElement_ViaAdl) {
 }
 
 TEST(TupleUtils, GetElement_ViaMembers) {
-  ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
+  ::ns1::NamedStructViaMembers const tested{1, "fname-1", "lname-1"};
   using internal::GetElement;
   EXPECT_EQ(1, GetElement<0>(tested));
   EXPECT_EQ("fname-1", GetElement<1>(tested));
