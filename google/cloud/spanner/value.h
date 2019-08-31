@@ -154,8 +154,9 @@ std::pair<google::spanner::v1::Type, google::protobuf::Value> ToProto(Value v);
  */
 class Value {
  private:
+#if 0
   template <typename T, typename U=void>
- struct is_named_struct_impl : public std::false_type {};
+  struct is_named_struct_impl : public std::false_type {};
 
   template <typename T>
   struct is_named_struct_impl<T, void>
@@ -166,6 +167,7 @@ class Value {
   template <typename T>
   struct is_named_struct
       : public is_named_struct_impl<typename std::decay<T>::type,void> {};
+#endif
 
  public:
   /**
@@ -302,9 +304,9 @@ class Value {
    * @tparam T the user defined type.
    * @param s the value
    */
-  template <typename T,
-            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
-  explicit Value(T&& s) : Value(NamedStructConstructor{}, std::forward<T>(s)) {}
+//  template <typename T,
+//            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
+//  explicit Value(T&& s) : Value(NamedStructConstructor{}, std::forward<T>(s)) {}
 
   friend bool operator==(Value const& a, Value const& b);
   friend bool operator!=(Value const& a, Value const& b) { return !(a == b); }
@@ -409,14 +411,14 @@ class Value {
     internal::ForEach(tup, AddStructTypes{}, *t.mutable_struct_type());
     return t;
   }
-  template <typename T,
-            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
-  static google::spanner::v1::Type MakeTypeProto(T const& v) {
-    google::spanner::v1::Type t;
-    t.set_code(google::spanner::v1::TypeCode::STRUCT);
-    internal::ForEachNamed(v, AddNamedStructTypes{}, *t.mutable_struct_type());
-    return t;
-  }
+//  template <typename T,
+//            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
+//  static google::spanner::v1::Type MakeTypeProto(T const& v) {
+//    google::spanner::v1::Type t;
+//    t.set_code(google::spanner::v1::TypeCode::STRUCT);
+//    internal::ForEachNamed(v, AddNamedStructTypes{}, *t.mutable_struct_type());
+//    return t;
+//  }
 
   // A functor to be used with internal::ForEach (see below) to add type protos
   // for all the elements of a tuple.
@@ -484,14 +486,14 @@ class Value {
     return v;
   }
 
-  template <typename T,
-            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
-  static google::protobuf::Value MakeValueProto(T&& s) {
-    google::protobuf::Value v;
-    internal::ForEachNamed(std::forward<T>(s), AddNamedStructValues{},
-                           *v.mutable_list_value());
-    return v;
-  }
+//  template <typename T,
+//            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
+//  static google::protobuf::Value MakeValueProto(T&& s) {
+//    google::protobuf::Value v;
+//    internal::ForEachNamed(std::forward<T>(s), AddNamedStructValues{},
+//                           *v.mutable_list_value());
+//    return v;
+//  }
 
   // A functor to be used with internal::ForEach (see below) to add Value
   // protos for all the elements of a tuple.

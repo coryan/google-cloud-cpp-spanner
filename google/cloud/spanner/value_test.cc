@@ -891,86 +891,86 @@ TEST(Value, GetBadStruct) {
   EXPECT_FALSE(v.get<std::tuple<bool>>().ok());
 }
 
-TEST(Value, NamedStructCxx11_ToProto) {
-  Value v(ns::NamedStructCxx11{1, "Elena", "Campbell", Date(1970, 01, 01)});
-  auto const p = internal::ToProto(v);
-  EXPECT_EQ(v, internal::FromProto(p.first, p.second));
-  EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
-
-  google::spanner::v1::Type expected_type;
-  ASSERT_TRUE(TextFormat::ParseFromString(
-      R"pb(
-        code: STRUCT
-        struct_type {
-          fields {
-            name: "id"
-            type { code: STRING }
-          }
-          fields {
-            name: "first_name"
-            type { code: STRING }
-          }
-          fields {
-            name: "last_name"
-            type { code: STRING }
-          }
-          fields {
-            name: "birth_day"
-            type { code: DATE }
-          }
-        })pb",
-      &expected_type));
-  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
-
-  google::protobuf::Value expected_value;
-  ASSERT_TRUE(TextFormat::ParseFromString(
-      R"pb(
-        list_value {
-          values { string_value: "1" }
-          values { string_value: "Elena" }
-          values { string_value: "Campbell" }
-          values { string_value: "1970-01-01" }
-        })pb",
-      &expected_value));
-  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
-}
-
-TEST(Value, NamedStructCxx11_Array) {
-  std::vector<ns::NamedStructCxx11> array{
-      {1, "Elena", "Campbell", Date(1970, 01, 01)},
-      {2, "Gabriel", "Wright", Date(1980, 02, 02)},
-  };
-  Value v(array);
-  auto extracted = v.get<std::vector<ns::NamedStructCxx11>>();
-  EXPECT_STATUS_OK(extracted);
-  EXPECT_EQ(array, *extracted);
-
-  auto const p = internal::ToProto(v);
-
-  google::protobuf::Value expected_value;
-  ASSERT_TRUE(TextFormat::ParseFromString(
-      R"pb(
-        list_value {
-          values {
-            list_value {
-              values { string_value: "1" }
-              values { string_value: "Elena" }
-              values { string_value: "Campbell" }
-              values { string_value: "1970-01-01" }
-            }
-          }
-          values {
-            list_value {
-              values { string_value: "2" }
-              values { string_value: "Gabriel" }
-              values { string_value: "Wright" }
-              values { string_value: "1980-02-02" }
-            }
-          }
-        })pb",
-      &expected_value));
-  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
-}
+//TEST(Value, NamedStructCxx11_ToProto) {
+//  Value v(ns::NamedStructCxx11{1, "Elena", "Campbell", Date(1970, 01, 01)});
+//  auto const p = internal::ToProto(v);
+//  EXPECT_EQ(v, internal::FromProto(p.first, p.second));
+//  EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
+//
+//  google::spanner::v1::Type expected_type;
+//  ASSERT_TRUE(TextFormat::ParseFromString(
+//      R"pb(
+//        code: STRUCT
+//        struct_type {
+//          fields {
+//            name: "id"
+//            type { code: STRING }
+//          }
+//          fields {
+//            name: "first_name"
+//            type { code: STRING }
+//          }
+//          fields {
+//            name: "last_name"
+//            type { code: STRING }
+//          }
+//          fields {
+//            name: "birth_day"
+//            type { code: DATE }
+//          }
+//        })pb",
+//      &expected_type));
+//  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
+//
+//  google::protobuf::Value expected_value;
+//  ASSERT_TRUE(TextFormat::ParseFromString(
+//      R"pb(
+//        list_value {
+//          values { string_value: "1" }
+//          values { string_value: "Elena" }
+//          values { string_value: "Campbell" }
+//          values { string_value: "1970-01-01" }
+//        })pb",
+//      &expected_value));
+//  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+//}
+//
+//TEST(Value, NamedStructCxx11_Array) {
+//  std::vector<ns::NamedStructCxx11> array{
+//      {1, "Elena", "Campbell", Date(1970, 01, 01)},
+//      {2, "Gabriel", "Wright", Date(1980, 02, 02)},
+//  };
+//  Value v(array);
+//  auto extracted = v.get<std::vector<ns::NamedStructCxx11>>();
+//  EXPECT_STATUS_OK(extracted);
+//  EXPECT_EQ(array, *extracted);
+//
+//  auto const p = internal::ToProto(v);
+//
+//  google::protobuf::Value expected_value;
+//  ASSERT_TRUE(TextFormat::ParseFromString(
+//      R"pb(
+//        list_value {
+//          values {
+//            list_value {
+//              values { string_value: "1" }
+//              values { string_value: "Elena" }
+//              values { string_value: "Campbell" }
+//              values { string_value: "1970-01-01" }
+//            }
+//          }
+//          values {
+//            list_value {
+//              values { string_value: "2" }
+//              values { string_value: "Gabriel" }
+//              values { string_value: "Wright" }
+//              values { string_value: "1980-02-02" }
+//            }
+//          }
+//        })pb",
+//      &expected_value));
+//  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+//}
 
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner
