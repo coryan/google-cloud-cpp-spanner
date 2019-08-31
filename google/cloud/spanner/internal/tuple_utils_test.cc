@@ -26,7 +26,7 @@ struct NamedStructViaMembers {
   std::string last_name;
 
   template <std::size_t N>
-  constexpr char const* get_field_name() const {
+  constexpr char const* get_element_name() const {
     if constexpr (N == 0) {
       return "id";
     }
@@ -90,19 +90,15 @@ struct NamedStructViaAdl {
 };
 
 template <std::size_t N>
-char const* get_field_name(NamedStructViaAdl const&);
-
-template <>
-char const* get_field_name<0>(NamedStructViaAdl const&) {
-  return "id";
-}
-template <>
-char const* get_field_name<1>(NamedStructViaAdl const&) {
-  return "first_name";
-}
-template <>
-char const* get_field_name<2>(NamedStructViaAdl const&) {
-  return "last_name";
+char const* GetElementName(NamedStructViaAdl const&) {
+  static char const* names[] = {
+      "id",
+      "first_name",
+      "last_name",
+  };
+  static_assert(N < sizeof(names) / sizeof(names[0]),
+                "get_field_name index out of range");
+  return names[N];
 }
 
 template <std::size_t N>
@@ -142,7 +138,6 @@ namespace google {
 namespace cloud {
 namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
-
 TEST(TupleUtils, NumElements) {
   EXPECT_EQ(internal::NumElements<std::vector<int>>::value, 2);
   EXPECT_EQ(internal::NumElements<std::tuple<>>::value, 0);
@@ -219,32 +214,36 @@ TEST(TupleUtils, ForEachStruct) {
   EXPECT_THAT(v, testing::ElementsAre("1", "42"));
 }
 
-TEST(TupleUtils, GetFieldName_ViaAdl) {
+TEST(TupleUtils, GetElementName_ViaAdl) {
   ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
-  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
-  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
-  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+  using internal::GetElementName;
+  EXPECT_EQ("id", GetElementName<0>(tested));
+  EXPECT_EQ("first_name", GetElementName<1>(tested));
+  EXPECT_EQ("last_name", GetElementName<2>(tested));
 }
 
-TEST(TupleUtils, GetFieldName_ViaMembers) {
+TEST(TupleUtils, GetElementName_ViaMembers) {
   ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
-  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
-  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
-  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+  using internal::GetElementName;
+  EXPECT_EQ("id", GetElementName<0>(tested));
+  EXPECT_EQ("first_name", GetElementName<1>(tested));
+  EXPECT_EQ("last_name", GetElementName<2>(tested));
 }
 
 TEST(TupleUtils, NumElements_ViaAdl) {
   ::ns1::NamedStructViaAdl tested{1, "fname-1", "lname-1"};
-  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
-  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
-  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+  using internal::GetElementName;
+  EXPECT_EQ("id", GetElementName<0>(tested));
+  EXPECT_EQ("first_name", GetElementName<1>(tested));
+  EXPECT_EQ("last_name", GetElementName<2>(tested));
 }
 
 TEST(TupleUtils, NumElements_ViaMembers) {
   ::ns1::NamedStructViaMembers tested{1, "fname-1", "lname-1"};
-  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
-  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
-  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
+  using internal::GetElementName;
+  EXPECT_EQ("id", GetElementName<0>(tested));
+  EXPECT_EQ("first_name", GetElementName<1>(tested));
+  EXPECT_EQ("last_name", GetElementName<2>(tested));
 }
 
 TEST(TupleUtils, GetElement_ViaAdl) {
@@ -306,6 +305,80 @@ TEST(TupleUtils, ForEachNamed_ViaMembers) {
   EXPECT_THAT(v, testing::ElementsAre("id", "1", "first_name", "fname-1",
                                       "last_name", "lname-1"));
 }
+
+namespace ns2 {
+struct LacksNumElements {
+  std::tuple<int, int, int> values;
+};
+template <std::size_t I>
+int GetElement(LacksNumElements const& v) {
+  return std::get<I>(v.values);
+}
+template <std::size_t I>
+int& GetElement(LacksNumElements& v) {
+  return std::get<I>(v.values);
+}
+
+struct InvalidGetElementName {
+  std::tuple<int, int, int> values;
+};
+template <std::size_t I>
+int GetElement(InvalidGetElementName const& v) {
+  return std::get<I>(v.values);
+}
+template <std::size_t I>
+int& GetElement(InvalidGetElementName& v) {
+  return std::get<I>(v.values);
+}
+template <std::size_t I>
+int GetElementName(InvalidGetElementName&) {
+  return -1;
+}
+
+}  // namespace ns2
+
+TEST(TupleUtils, HasNumElements) {
+  // These should succeed at compile time, we are verifying that the types work.
+  static_assert(!internal::HasNumElements<bool>::value,
+                "HasNumElements<bool> should be false");
+  static_assert(internal::NumElements<std::tuple<int, int, int>>::value == 3,
+                "Mismatched NumElements value");
+  static_assert(internal::NumElements<std::pair<int, std::string>>::value == 2,
+                "Mismatched NumElements value");
+  static_assert(internal::HasNumElements<std::pair<int, std::string>>::value,
+                "HasNumElements<std::pair<>> should be true");
+  static_assert(internal::HasNumElements<std::tuple<int, std::string>>::value,
+                "HasNumElements<std::tuple<>> should be true");
+
+  static_assert(!internal::HasNumElements<ns2::LacksNumElements>::value,
+                "HasNumElements<LacksNumElements> should be false");
+  static_assert(!internal::HasNumElements<ns2::InvalidGetElementName>::value,
+                "HasNumElements<LacksNumElements> should be false");
+
+  static_assert(internal::HasNumElements<ns1::NamedStructViaAdl>::value,
+                "ns1::NamedStructViaAdl should be a named struct");
+  static_assert(internal::HasNumElements<ns1::NamedStructViaMembers>::value,
+                "ns1::NamedStructViaMembers should be a named struct");
+}
+
+#if 0
+TEST(TupleUtils, IsNamedStruct) {
+  // These should succeed at compile time, we are verifying that the types work.
+  static_assert(internal::IsNamedStruct<bool>::value == false,
+                "bool should not be a NamedStruct");
+  static_assert(
+      internal::IsNamedStruct<std::pair<int, std::string>>::value == false,
+      "std::pair<> should not be a NamedStruct");
+  static_assert(internal::IsNamedStruct<
+                    std::tuple<int, std::string, std::string>>::value == false,
+                "std::tuple<> should not be a NamedStruct");
+
+  static_assert(internal::IsNamedStruct<ns1::NamedStructViaAdl>::value,
+                "ns1::NamedStructViaAdl should be a named struct");
+  static_assert(internal::IsNamedStruct<ns1::NamedStructViaMembers>::value,
+                "ns1::NamedStructViaMembers should be a named struct");
+}
+#endif
 
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner

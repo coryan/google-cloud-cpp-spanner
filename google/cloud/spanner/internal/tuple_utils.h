@@ -16,6 +16,8 @@
 #define GOOGLE_CLOUD_CPP_SPANNER_GOOGLE_CLOUD_SPANNER_INTERNAL_TUPLE_UTILS_H_
 
 #include "google/cloud/spanner/version.h"
+#include "google/cloud/internal/disjunction.h"
+#include "google/cloud/internal/invoke_result.h"
 #include <tuple>
 #include <type_traits>
 
@@ -26,63 +28,41 @@ inline namespace SPANNER_CLIENT_NS {
 namespace internal {
 
 /**
- * Get the field names for a NameStruct.
+ * The default implementation for GetElementName().
  *
- * This version gets the field name using a template member function
- * `get_field_name<N>()`, but we always use this function through the
- * GetFieldName adapter, so applications can define the function in their own
- * namespace.
+ * By default we use this function to get the element (field) names using
+ * using a template member function `get_element_name<N>()`. Applications can
+ * define this function in their own namespace to override this behavior via
+ * ADL.
  */
 template <std::size_t N, typename T>
-auto get_field_name(T const& t) -> decltype(t.template get_field_name<N>()) {
-  return t.template get_field_name<N>();
+auto GetElementName(T const& t) -> decltype(t.template get_element_name<N>()) {
+  return t.template get_element_name<N>();
 }
 
-/**
- * A metafunction that returns the name of each field in a named structure.
- *
- * @tparam N the index of the field
- * @tparam NamedStruct the type of the named struct.
- * @param s the named structure value, typically unused.
- */
-template <std::size_t N, typename NamedStruct/*,
-          typename std::enable_if<google::cloud::internal::is_invocable<
-                                      decltype(&NamedStruct::get_field_name),
-                                      NamedStruct const&>::value,
-                                  int>::type = 0*/>
-auto GetFieldName(NamedStruct const& s)
--> decltype(get_field_name<N>(std::declval<NamedStruct const&>())) {
-  return get_field_name<N>(s);
-}
-
-template <typename NamedStruct>
-struct IsNamedStructImpl {
-    template <typename...Ts>
-  void operator()(NamedStruct const&, Ts...) {}
-
-  auto operator()(NamedStruct const& s) -> decltype(GetFieldName<0>(s)) {
-    return GetFieldName<0>(s);
-  }
-};
-
-// A metafunction that returns the number of elements in any class template
-// that takes a variable number of arguments.
-//
-// Example:
-//
-//     using Type = std::tuple<int, char, bool>;
-//     assert(NumElements<Type>::value == 3);
-//
+// The default implementation, using `std::tuple_size<T>`
 template <typename T>
 struct NumElementsImpl : public std::tuple_size<T> {};
 
+// Specialize for tuple-like types.
 template <template <typename...> class T, typename... Ts>
-struct NumElementsImpl<T<Ts...>> {
-  static const std::size_t value = sizeof...(Ts);
-};
-template <template <typename...> class T, typename... Ts>
-std::size_t const NumElementsImpl<T<Ts...>>::value;  // Declares storage
+struct NumElementsImpl<T<Ts...>>
+    : public std::integral_constant<std::size_t, sizeof...(Ts)> {};
 
+/**
+ * A metafunction that returns the number of elements in a named structure.
+ *
+ * Applications can specialize `std::tuple_size<>` for their type (as they would
+ * do for any type supporting structured binding), to use their types with
+ * the library.
+ *
+ * @par Example
+ *
+ * @code
+ * using Type = std::tuple<int, char, bool>;
+ * assert(NumElements<Type>::value == 3);
+ * @endcode
+ */
 template <typename T>
 using NumElements = NumElementsImpl<typename std::decay<T>::type>;
 
@@ -148,11 +128,60 @@ template <std::size_t I = 0, typename T, typename F, typename... Args>
 typename std::enable_if<(I < NumElements<T>::value), void>::type ForEachNamed(
     T&& t, F&& f, Args&&... args) {
   auto&& e = GetElement<I>(std::forward<T>(t));
-  std::forward<F>(f)(GetFieldName<I>(t), std::forward<decltype(e)>(e),
+  std::forward<F>(f)(GetElementName<I>(t), std::forward<decltype(e)>(e),
                      std::forward<Args>(args)...);
   ForEachNamed<I + 1>(std::forward<T>(t), std::forward<F>(f),
                       std::forward<Args>(args)...);
 }
+
+template <typename T>
+struct NumElementsInvoker {
+  auto operator()(T const& s) -> decltype(NumElements<T>::value);
+};
+
+template <typename AlwaysVoid, typename T>
+struct HasNumElementsImpl : public std::false_type {};
+
+template <typename T>
+struct HasNumElementsImpl<decltype(void(NumElementsInvoker(std::declval<T>()))),
+                          T> : public std::true_type {};
+
+template <typename T>
+struct HasNumElements
+    : public HasNumElementsImpl<void, typename std::decay<T>::type> {};
+
+template <typename T, std::size_t I>
+struct GetElementNameInvoker {
+  auto operator()(T const& s) -> decltype(GetElementName<I>(s));
+};
+
+template <typename T, std::size_t I>
+struct ElementNameIsConvertibleToString
+    : public std::is_convertible<google::cloud::internal::invoke_result_t<
+                                     GetElementNameInvoker<T, I>, T const&>,
+                                 std::string> {};
+
+template <typename T, std::size_t I>
+struct AllElementNamesAreStringsImpl;
+
+template <typename T>
+struct AllElementNamesAreStringsImpl<T, 0>
+    : public ElementNameIsConvertibleToString<T, 0> {};
+
+template <typename T, std::size_t I>
+struct AllElementNamesAreStringsImpl
+    : public std::integral_constant<
+          bool, ElementNameIsConvertibleToString<T, I>::value &&
+                    AllElementNamesAreStringsImpl<T, I - 1>::value> {};
+
+template <typename T>
+struct AllElementNamesAreStrings
+    : public AllElementNamesAreStringsImpl<T, NumElements<T>::value> {};
+
+template <typename T>
+struct IsNamedStruct : public std::conditional<HasNumElements<T>::value,
+                                               AllElementNamesAreStrings<T>,
+                                               std::false_type>::type {};
 
 }  // namespace internal
 }  // namespace SPANNER_CLIENT_NS
