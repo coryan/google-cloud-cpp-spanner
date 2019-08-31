@@ -37,7 +37,6 @@ namespace google {
 namespace cloud {
 namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
-
 class Value;  // Defined later in this file.
 // Internal implementation details that callers should not use.
 namespace internal {
@@ -154,6 +153,20 @@ std::pair<google::spanner::v1::Type, google::protobuf::Value> ToProto(Value v);
  *   a `std::vector` of `std::tuple` objects with differently named fields.
  */
 class Value {
+ private:
+  template <typename T, typename U=void>
+ struct is_named_struct_impl : public std::false_type {};
+
+  template <typename T>
+  struct is_named_struct_impl<T, void>
+      : public google::cloud::internal::is_invocable<
+            internal::IsNamedStructImpl<T>, T const&> {};
+
+  // Metafunction that returns true if `T` is a named structure
+  template <typename T>
+  struct is_named_struct
+      : public is_named_struct_impl<typename std::decay<T>::type,void> {};
+
  public:
   /**
    * Constructs a `Value` that holds nothing.
@@ -282,14 +295,16 @@ class Value {
   explicit Value(std::tuple<Ts...> tup)
       : Value(PrivateConstructor{}, std::move(tup)) {}
 
-  // NamedStruct
-  template <typename NamedStruct,
-            typename std::enable_if<
-                google::cloud::internal::is_invocable<
-                    decltype(internal::GetFieldName<0, NamedStruct>), NamedStruct const&>::value,
-                int>::type = 0>
-  explicit Value(NamedStruct s)
-      : Value(NamedStructConstructor{}, std::move(s)) {}
+  /**
+   * Constructs an instance from a user-defined type that meets the requirements
+   * of a Named Struct.
+   *
+   * @tparam T the user defined type.
+   * @param s the value
+   */
+  template <typename T,
+            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
+  explicit Value(T&& s) : Value(NamedStructConstructor{}, std::forward<T>(s)) {}
 
   friend bool operator==(Value const& a, Value const& b);
   friend bool operator!=(Value const& a, Value const& b) { return !(a == b); }
@@ -394,6 +409,14 @@ class Value {
     internal::ForEach(tup, AddStructTypes{}, *t.mutable_struct_type());
     return t;
   }
+  template <typename T,
+            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
+  static google::spanner::v1::Type MakeTypeProto(T const& v) {
+    google::spanner::v1::Type t;
+    t.set_code(google::spanner::v1::TypeCode::STRUCT);
+    internal::ForEachNamed(v, AddNamedStructTypes{}, *t.mutable_struct_type());
+    return t;
+  }
 
   // A functor to be used with internal::ForEach (see below) to add type protos
   // for all the elements of a tuple.
@@ -426,18 +449,6 @@ class Value {
       *field->mutable_type() = MakeTypeProto(t);
     }
   };
-
-  template <std::size_t N, typename... Ts>
-  static google::spanner::v1::Type MakeTypeProto(
-      std::array<std::string, N> names, std::tuple<Ts...> const& tup) {
-    static_assert(N == internal::NumElements<std::tuple<Ts...>>::value,
-                  "mismatched element vs. names count");
-    google::spanner::v1::Type t;
-    t.set_code(google::spanner::v1::TypeCode::STRUCT);
-    internal::ForEachNamed(names, tup, AddNamedStructTypes{},
-                           *t.mutable_struct_type());
-    return t;
-  }
 
   // Encodes the argument as a protobuf according to the rules described in
   // https://github.com/googleapis/googleapis/blob/master/google/spanner/v1/type.proto
@@ -473,6 +484,15 @@ class Value {
     return v;
   }
 
+  template <typename T,
+            typename std::enable_if<is_named_struct<T>::value, int>::type = 0>
+  static google::protobuf::Value MakeValueProto(T&& s) {
+    google::protobuf::Value v;
+    internal::ForEachNamed(std::forward<T>(s), AddNamedStructValues{},
+                           *v.mutable_list_value());
+    return v;
+  }
+
   // A functor to be used with internal::ForEach (see below) to add Value
   // protos for all the elements of a tuple.
   struct AddStructValues {
@@ -486,6 +506,16 @@ class Value {
     void operator()(std::pair<S, T> p,
                     google::protobuf::ListValue& list_value) const {
       *list_value.add_values() = MakeValueProto(std::move(p.second));
+    }
+  };
+
+  // A functor to be used with internal::ForEachNamed (see below) to add Value
+  // protos for all the elements of a named struct.
+  struct AddNamedStructValues {
+    template <typename S, typename T>
+    void operator()(S const&, T& t,
+                    google::protobuf::ListValue& list_value) const {
+      *list_value.add_values() = MakeValueProto(std::move(t));
     }
   };
 
@@ -580,9 +610,9 @@ class Value {
 
   // NamedStruct
   template <typename NamedStruct>
-  static StatusOr<NamedStruct> GetValueNamedStruct(NamedStruct const&,
-                                        google::protobuf::Value const& pv,
-                                        google::spanner::v1::Type const& pt) {
+  static StatusOr<NamedStruct> GetValueNamedStruct(
+      NamedStruct const&, google::protobuf::Value const& pv,
+      google::spanner::v1::Type const& pt) {
     if (pv.kind_case() != google::protobuf::Value::kListValue) {
       return Status(StatusCode::kUnknown, "missing STRUCT");
     }
@@ -628,13 +658,11 @@ class Value {
   explicit Value(PrivateConstructor, T&& t)
       : type_(MakeTypeProto(t)), value_(MakeValueProto(std::forward<T>(t))) {}
 
-
   struct NamedStructConstructor {};
-  template <typename T, std::size_t N>
+  template <typename T>
   explicit Value(NamedStructConstructor, T&& t)
       : type_(MakeTypeProtoNamedStruct(t)),
-        value_(MakeValueProto(std::forward<T>(t))) {}
-
+        value_(MakeValueProtoNamedStruct(std::forward<T>(t))) {}
 
   explicit Value(google::spanner::v1::Type t, google::protobuf::Value v)
       : type_(std::move(t)), value_(std::move(v)) {}

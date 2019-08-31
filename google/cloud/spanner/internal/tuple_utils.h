@@ -55,6 +55,16 @@ auto GetFieldName(NamedStruct const& s)
   return get_field_name<N>(s);
 }
 
+template <typename NamedStruct>
+struct IsNamedStructImpl {
+    template <typename...Ts>
+  void operator()(NamedStruct const&, Ts...) {}
+
+  auto operator()(NamedStruct const& s) -> decltype(GetFieldName<0>(s)) {
+    return GetFieldName<0>(s);
+  }
+};
+
 // A metafunction that returns the number of elements in any class template
 // that takes a variable number of arguments.
 //

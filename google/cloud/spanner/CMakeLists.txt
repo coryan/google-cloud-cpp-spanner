@@ -285,6 +285,9 @@ function (spanner_client_define_tests)
         add_test(NAME ${target} COMMAND ${target})
         add_dependencies(spanner-client-tests ${target})
     endforeach ()
+    if (NOT MSVC)
+        target_compile_options(value_test PRIVATE "-Wno-mismatched-tags")
+    endif ()
 endfunction ()
 
 # Only define the tests if testing is enabled. Package maintainers may not want

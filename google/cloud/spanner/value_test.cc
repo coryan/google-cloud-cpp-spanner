@@ -28,22 +28,129 @@
 #include <type_traits>
 #include <vector>
 
-namespace {
+namespace ns {
+#if __cplusplus == 201703L
+struct NamedStructCxx17 {
+  std::int64_t id;
+  std::string first_name;
+  std::string last_name;
 
-struct SingerInfo : public std::tuple<std::string, std::string,
-                                      google::cloud::spanner::Date> {
-  using std::tuple<std::string, std::string,
-                   google::cloud::spanner::Date>::tuple;
+  template <std::size_t N>
+  constexpr char const* get_field_name() const {
+    if constexpr (N == 0) {
+      return "id";
+    }
+    if constexpr (N == 1) {
+      return "first_name";
+    }
+    if constexpr (N == 2) {
+      return "last_name";
+    }
+    static_assert(N <= 2);
+  }
+
+  template <std::size_t N>
+  constexpr auto const& get() const& {
+    if constexpr (N == 0) {
+      return id;
+    }
+    if constexpr (N == 1) {
+      return first_name;
+    }
+    if constexpr (N == 2) {
+      return last_name;
+    }
+    static_assert(N <= 2);
+  }
+
+  template <std::size_t N>
+  constexpr auto&& get() && {
+    if constexpr (N == 0) {
+      return id;
+    }
+    if constexpr (N == 1) {
+      return std::move(first_name);
+    }
+    if constexpr (N == 2) {
+      return std::move(last_name);
+    }
+    static_assert(N <= 2);
+  }
+
+  template <std::size_t N>
+  constexpr auto& get() & {
+    if constexpr (N == 0) {
+      return id;
+    }
+    if constexpr (N == 1) {
+      return first_name;
+    }
+    if constexpr (N == 2) {
+      return last_name;
+    }
+    static_assert(N <= 2);
+  }
 };
-
-}  // namespace
+}  // namespace ns
 
 namespace std {
 template <>
-struct tuple_size<SingerInfo> {
-  static constexpr std::size_t value = 3;
+class tuple_size<::ns::NamedStructCxx17>
+    : public std::integral_constant<std::size_t, 3> {};
+}  // namespace std
+#endif  // __cplusplus == 201703L
+
+namespace ns {
+struct NamedStructCxx11 {
+  std::int64_t id;
+  std::string first_name;
+  std::string last_name;
+  google::cloud::spanner::Date birth_date;
 };
 
+template <std::size_t N>
+char const* get_field_name(NamedStructCxx11 const&);
+
+template <>
+char const* get_field_name<0>(NamedStructCxx11 const&) {
+  return "id";
+}
+template <>
+char const* get_field_name<1>(NamedStructCxx11 const&) {
+  return "first_name";
+}
+template <>
+char const* get_field_name<2>(NamedStructCxx11 const&) {
+  return "last_name";
+}
+template <>
+char const* get_field_name<3>(NamedStructCxx11 const&) {
+  return "birth_date";
+}
+
+template <std::size_t N>
+auto GetElement(NamedStructCxx11 const& v)
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date))) {
+  return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
+}
+
+template <std::size_t N>
+auto GetElement(NamedStructCxx11&& v)
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date))) {
+  return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
+}
+
+template <std::size_t N>
+auto GetElement(NamedStructCxx11& v)
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date))) {
+  return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
+}
+}  // namespace ns
+
+namespace std {
+template <>
+class tuple_size<::ns::NamedStructCxx11>
+    : public std::integral_constant<std::size_t, 4> {};
 }  // namespace std
 
 namespace google {
@@ -784,30 +891,8 @@ TEST(Value, GetBadStruct) {
   EXPECT_FALSE(v.get<std::tuple<bool>>().ok());
 }
 
-template <>
-struct NamedStructTraits<SingerInfo> {
-  // NOLINTNEXTLINE
-  static std::array<std::string, 3> names() {
-    return {"FirstName", "LastName", "Birthday"};
-  }
-};
-
-TEST(Value, NamedStruct) {
-  SingerInfo info{"Elena", "Campbell", Date(1970, 01, 01)};
-  Value actual(info);
-
-  using OldInfo = std::tuple<std::pair<std::string, std::string>,
-                             std::pair<std::string, std::string>,
-                             std::pair<std::string, Date>>;
-
-  Value expected(OldInfo{{"FirstName", "Elena"},
-                         {"LastName", "Campbell"},
-                         {"Birthday", Date(1970, 01, 01)}});
-  EXPECT_EQ(expected, actual);
-}
-
-TEST(Value, NamedStructToProto) {
-  Value v(SingerInfo{"Elena", "Campbell", Date(1970, 01, 01)});
+TEST(Value, NamedStructCxx11_ToProto) {
+  Value v(ns::NamedStructCxx11{1, "Elena", "Campbell", Date(1970, 01, 01)});
   auto const p = internal::ToProto(v);
   EXPECT_EQ(v, internal::FromProto(p.first, p.second));
   EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
@@ -818,15 +903,19 @@ TEST(Value, NamedStructToProto) {
         code: STRUCT
         struct_type {
           fields {
-            name: "FirstName"
+            name: "id"
             type { code: STRING }
           }
           fields {
-            name: "LastName"
+            name: "first_name"
             type { code: STRING }
           }
           fields {
-            name: "Birthday"
+            name: "last_name"
+            type { code: STRING }
+          }
+          fields {
+            name: "birth_day"
             type { code: DATE }
           }
         })pb",
@@ -837,6 +926,7 @@ TEST(Value, NamedStructToProto) {
   ASSERT_TRUE(TextFormat::ParseFromString(
       R"pb(
         list_value {
+          values { string_value: "1" }
           values { string_value: "Elena" }
           values { string_value: "Campbell" }
           values { string_value: "1970-01-01" }
@@ -845,13 +935,13 @@ TEST(Value, NamedStructToProto) {
   EXPECT_THAT(p.second, IsProtoEqual(expected_value));
 }
 
-TEST(Value, NamedStructArray) {
-  std::vector<SingerInfo> array{
-      {"Elena", "Campbell", Date(1970, 01, 01)},
-      {"Gabriel", "Wright", Date(1980, 02, 02)},
+TEST(Value, NamedStructCxx11_Array) {
+  std::vector<ns::NamedStructCxx11> array{
+      {1, "Elena", "Campbell", Date(1970, 01, 01)},
+      {2, "Gabriel", "Wright", Date(1980, 02, 02)},
   };
   Value v(array);
-  auto extracted = v.get<std::vector<SingerInfo>>();
+  auto extracted = v.get<std::vector<ns::NamedStructCxx11>>();
   EXPECT_STATUS_OK(extracted);
   EXPECT_EQ(array, *extracted);
 
@@ -863,6 +953,7 @@ TEST(Value, NamedStructArray) {
         list_value {
           values {
             list_value {
+              values { string_value: "1" }
               values { string_value: "Elena" }
               values { string_value: "Campbell" }
               values { string_value: "1970-01-01" }
@@ -870,6 +961,7 @@ TEST(Value, NamedStructArray) {
           }
           values {
             list_value {
+              values { string_value: "2" }
               values { string_value: "Gabriel" }
               values { string_value: "Wright" }
               values { string_value: "1980-02-02" }
@@ -878,13 +970,6 @@ TEST(Value, NamedStructArray) {
         })pb",
       &expected_value));
   EXPECT_THAT(p.second, IsProtoEqual(expected_value));
-}
-
-TEST(Value, NamedStructViaMembers_GetFieldName) {
-  NamedStructViaAdl tested{1, "fname-1", "fname-2"};
-  EXPECT_EQ("id", internal::GetFieldName<0>(tested));
-  EXPECT_EQ("first_name", internal::GetFieldName<1>(tested));
-  EXPECT_EQ("last_name", internal::GetFieldName<2>(tested));
 }
 
 }  // namespace SPANNER_CLIENT_NS
