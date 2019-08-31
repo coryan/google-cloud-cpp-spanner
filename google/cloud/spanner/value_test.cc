@@ -109,42 +109,54 @@ struct NamedStructCxx11 {
 };
 
 template <std::size_t N>
-char const* get_field_name(NamedStructCxx11 const&);
-
-template <>
-char const* get_field_name<0>(NamedStructCxx11 const&) {
-  return "id";
-}
-template <>
-char const* get_field_name<1>(NamedStructCxx11 const&) {
-  return "first_name";
-}
-template <>
-char const* get_field_name<2>(NamedStructCxx11 const&) {
-  return "last_name";
-}
-template <>
-char const* get_field_name<3>(NamedStructCxx11 const&) {
-  return "birth_date";
+char const* GetElementName(NamedStructCxx11 const&) {
+  static char const* names[] = {
+      "id",
+      "FirstName",
+      "LastName",
+      "BirthDate",
+  };
+  static_assert(N <= sizeof(names) / sizeof(names[0]),
+                "Index out of range in GetFieldName(NamedStructCxx11)");
+  return names[N];
 }
 
 template <std::size_t N>
 auto GetElement(NamedStructCxx11 const& v)
-    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date))) {
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name,
+                                     v.birth_date))) {
   return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
 }
 
 template <std::size_t N>
 auto GetElement(NamedStructCxx11&& v)
-    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date))) {
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name,
+                                     v.birth_date))) {
   return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
 }
 
 template <std::size_t N>
 auto GetElement(NamedStructCxx11& v)
-    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date))) {
+    -> decltype(std::get<N>(std::tie(v.id, v.first_name, v.last_name,
+                                     v.birth_date))) {
   return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
 }
+
+bool operator==(NamedStructCxx11 const& lhs, NamedStructCxx11 const& rhs) {
+  return std::tie(lhs.id, lhs.first_name, lhs.last_name, lhs.birth_date) ==
+         std::tie(rhs.id, rhs.first_name, rhs.last_name, rhs.birth_date);
+}
+bool operator!=(NamedStructCxx11 const& lhs, NamedStructCxx11 const& rhs) {
+  return !(lhs == rhs);
+}
+
+// Used by google test
+void PrintTo(NamedStructCxx11 const& x, std::ostream* os) {
+  *os << "{" << x.id << "," << x.first_name << "," << x.last_name << ","
+      << x.birth_date.year() << "-" << x.birth_date.month() << "-"
+      << x.birth_date.day() << "}";
+}
+
 }  // namespace ns
 
 namespace std {
@@ -157,7 +169,6 @@ namespace google {
 namespace cloud {
 namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
-
 using ::google::cloud::spanner_testing::IsProtoEqual;
 using ::google::protobuf::TextFormat;
 
@@ -891,86 +902,86 @@ TEST(Value, GetBadStruct) {
   EXPECT_FALSE(v.get<std::tuple<bool>>().ok());
 }
 
-//TEST(Value, NamedStructCxx11_ToProto) {
-//  Value v(ns::NamedStructCxx11{1, "Elena", "Campbell", Date(1970, 01, 01)});
-//  auto const p = internal::ToProto(v);
-//  EXPECT_EQ(v, internal::FromProto(p.first, p.second));
-//  EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
-//
-//  google::spanner::v1::Type expected_type;
-//  ASSERT_TRUE(TextFormat::ParseFromString(
-//      R"pb(
-//        code: STRUCT
-//        struct_type {
-//          fields {
-//            name: "id"
-//            type { code: STRING }
-//          }
-//          fields {
-//            name: "first_name"
-//            type { code: STRING }
-//          }
-//          fields {
-//            name: "last_name"
-//            type { code: STRING }
-//          }
-//          fields {
-//            name: "birth_day"
-//            type { code: DATE }
-//          }
-//        })pb",
-//      &expected_type));
-//  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
-//
-//  google::protobuf::Value expected_value;
-//  ASSERT_TRUE(TextFormat::ParseFromString(
-//      R"pb(
-//        list_value {
-//          values { string_value: "1" }
-//          values { string_value: "Elena" }
-//          values { string_value: "Campbell" }
-//          values { string_value: "1970-01-01" }
-//        })pb",
-//      &expected_value));
-//  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
-//}
-//
-//TEST(Value, NamedStructCxx11_Array) {
-//  std::vector<ns::NamedStructCxx11> array{
-//      {1, "Elena", "Campbell", Date(1970, 01, 01)},
-//      {2, "Gabriel", "Wright", Date(1980, 02, 02)},
-//  };
-//  Value v(array);
-//  auto extracted = v.get<std::vector<ns::NamedStructCxx11>>();
-//  EXPECT_STATUS_OK(extracted);
-//  EXPECT_EQ(array, *extracted);
-//
-//  auto const p = internal::ToProto(v);
-//
-//  google::protobuf::Value expected_value;
-//  ASSERT_TRUE(TextFormat::ParseFromString(
-//      R"pb(
-//        list_value {
-//          values {
-//            list_value {
-//              values { string_value: "1" }
-//              values { string_value: "Elena" }
-//              values { string_value: "Campbell" }
-//              values { string_value: "1970-01-01" }
-//            }
-//          }
-//          values {
-//            list_value {
-//              values { string_value: "2" }
-//              values { string_value: "Gabriel" }
-//              values { string_value: "Wright" }
-//              values { string_value: "1980-02-02" }
-//            }
-//          }
-//        })pb",
-//      &expected_value));
-//  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
-//}
+TEST(Value, NamedStructCxx11_ToProto) {
+  static_assert(internal::IsNamedStruct<ns::NamedStructCxx11>::value, "a");
+  static_assert(internal::IsNamedStruct<ns::NamedStructCxx11>::value, "a");
+
+  Value v(ns::NamedStructCxx11{1, "Elena", "Campbell", Date(1970, 01, 01)});
+  auto const p = internal::ToProto(v);
+  EXPECT_EQ(v, internal::FromProto(p.first, p.second));
+  EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
+
+  google::spanner::v1::Type expected_type;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        code: STRUCT
+        struct_type {
+          fields {
+            name: "id"
+            type { code: INT64 }
+          }
+          fields {
+            name: "FirstName"
+            type { code: STRING }
+          }
+          fields {
+            name: "LastName"
+            type { code: STRING }
+          }
+          fields {
+            name: "BirthDate"
+            type { code: DATE }
+          }
+        })pb", &expected_type));
+  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
+
+  google::protobuf::Value expected_value;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        list_value {
+          values { string_value: "1" }
+          values { string_value: "Elena" }
+          values { string_value: "Campbell" }
+          values { string_value: "1970-01-01" }
+        })pb", &expected_value));
+  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+}
+
+TEST(Value, NamedStructCxx11_Array) {
+  std::vector<ns::NamedStructCxx11> array{
+      {1, "Elena", "Campbell", Date(1970, 01, 01)},
+      {2, "Gabriel", "Wright", Date(1980, 02, 02)},
+  };
+  Value v(array);
+  auto extracted = v.get<std::vector<ns::NamedStructCxx11>>();
+  EXPECT_STATUS_OK(extracted);
+  EXPECT_THAT(*extracted, ::testing::ElementsAreArray(array));
+
+  auto const p = internal::ToProto(v);
+
+  google::protobuf::Value expected_value;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        list_value {
+          values {
+            list_value {
+              values { string_value: "1" }
+              values { string_value: "Elena" }
+              values { string_value: "Campbell" }
+              values { string_value: "1970-01-01" }
+            }
+          }
+          values {
+            list_value {
+              values { string_value: "2" }
+              values { string_value: "Gabriel" }
+              values { string_value: "Wright" }
+              values { string_value: "1980-02-02" }
+            }
+          }
+        })pb", &expected_value));
+  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+}
 
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner
