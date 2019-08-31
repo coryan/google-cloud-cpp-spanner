@@ -26,6 +26,58 @@ namespace cloud {
 namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
 namespace internal {
+// The default case for SFINAE. The constant type is not `std::size_t`.
+template <typename T, typename AlwaysVoid>
+struct NumElementsImpl : std::integral_constant<int, 0> {};
+
+// Specialize for any type that has specialized `std::tuple_size<T>`
+template <typename T>
+struct NumElementsImpl<T, decltype(void(std::tuple_size<T>::value))>
+    : public std::tuple_size<T> {};
+}  // namespace internal
+}  // namespace SPANNER_CLIENT_NS
+}  // namespace spanner
+
+namespace spanner_extensions {
+inline namespace SPANNER_CLIENT_NS {
+/**
+ * A metafunction that returns the number of elements in a named structure.
+ *
+ * Applications can specialize `std::tuple_size<>` for their type (as they would
+ * do for any type supporting structured binding), to use their types with
+ * the library.
+ *
+ * @par Example
+ *
+ * @code
+ * using Type = std::tuple<int, char, bool>;
+ * assert(NumElements<Type>::value == 3);
+ *
+ * struct MyStruct { std::string x; std::string y; }
+ * namespace google::cloud::spanner_extensions {
+ * template<>
+ * struct NumElements<MyStruct> : std::integral_constant<std::size_t, 2> {};
+ * }  // namespace google::cloud::spanner_extensions
+ *
+ * struct ForStructuredBindings { std::string x; std::string y; }
+ * namespace std {
+ * template<>
+ * class tuple_size<ForStructuredBindings>
+ *   : std::integral_constant<std::size_t, 2> {};
+ * }  // namespace std
+ * @endcode
+ */
+template <typename T>
+struct NumElements
+    : public spanner::internal::NumElementsImpl<typename std::decay<T>::type,
+                                                void> {};
+}  // namespace SPANNER_CLIENT_NS
+}  // namespace spanner_extensions
+
+namespace spanner {
+inline namespace SPANNER_CLIENT_NS {
+namespace internal {
+using spanner_extensions::NumElements;
 
 /**
  * The default implementation for GetElementName().
@@ -39,32 +91,6 @@ template <std::size_t N, typename T>
 auto GetElementName(T const& t) -> decltype(t.template get_element_name<N>()) {
   return t.template get_element_name<N>();
 }
-
-// The default case for SFINAE. The constant type is not `std::size_t`.
-template <typename T, typename AlwaysVoid>
-struct NumElementsImpl : std::integral_constant<int, 0> {};
-
-// Specialize for any type that has specialized `std::tuple_size<T>`
-template <typename T>
-struct NumElementsImpl<T, decltype(void(std::tuple_size<T>::value))>
-    : public std::tuple_size<T> {};
-
-/**
- * A metafunction that returns the number of elements in a named structure.
- *
- * Applications can specialize `std::tuple_size<>` for their type (as they would
- * do for any type supporting structured binding), to use their types with
- * the library.
- *
- * @par Example
- *
- * @code
- * using Type = std::tuple<int, char, bool>;
- * assert(NumElements<Type>::value == 3);
- * @endcode
- */
-template <typename T>
-using NumElements = NumElementsImpl<typename std::decay<T>::type, void>;
 
 // Similar to `std::get<I>(std::tuple)`, except that this function is an
 // extension point for `ForEach` (below) that callers can define in their own

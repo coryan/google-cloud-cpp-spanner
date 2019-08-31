@@ -36,7 +36,7 @@ struct NamedStructCxx17 {
   std::string last_name;
 
   template <std::size_t N>
-  constexpr char const* get_field_name() const {
+  constexpr char const* get_element_name() const {
     if constexpr (N == 0) {
       return "id";
     }
@@ -91,6 +91,20 @@ struct NamedStructCxx17 {
     static_assert(N <= 2);
   }
 };
+
+// Used by google test
+bool operator==(NamedStructCxx17 const& lhs, NamedStructCxx17 const& rhs) {
+  return std::tie(lhs.id, lhs.first_name, lhs.last_name) ==
+         std::tie(rhs.id, rhs.first_name, rhs.last_name);
+}
+bool operator!=(NamedStructCxx17 const& lhs, NamedStructCxx17 const& rhs) {
+  return !(lhs == rhs);
+}
+
+// Used by google test
+void PrintTo(NamedStructCxx17 const& x, std::ostream* os) {
+  *os << "{" << x.id << "," << x.first_name << "," << x.last_name << "}";
+}
 }  // namespace ns
 
 namespace std {
@@ -142,6 +156,7 @@ auto GetElement(NamedStructCxx11& v)
   return std::get<N>(std::tie(v.id, v.first_name, v.last_name, v.birth_date));
 }
 
+// Used by google test
 bool operator==(NamedStructCxx11 const& lhs, NamedStructCxx11 const& rhs) {
   return std::tie(lhs.id, lhs.first_name, lhs.last_name, lhs.birth_date) ==
          std::tie(rhs.id, rhs.first_name, rhs.last_name, rhs.birth_date);
@@ -167,6 +182,12 @@ class tuple_size<::ns::NamedStructCxx11>
 
 namespace google {
 namespace cloud {
+// namespace spanner_extensions {
+// template <>
+// struct NumElements<::ns::NamedStructCxx11>
+//    : public std::integral_constant<std::size_t, 4> {};
+//}  // namespace spanner_extensions
+
 namespace spanner {
 inline namespace SPANNER_CLIENT_NS {
 using ::google::cloud::spanner_testing::IsProtoEqual;
@@ -904,7 +925,6 @@ TEST(Value, GetBadStruct) {
 
 TEST(Value, NamedStructCxx11_ToProto) {
   static_assert(internal::IsNamedStruct<ns::NamedStructCxx11>::value, "a");
-  static_assert(internal::IsNamedStruct<ns::NamedStructCxx11>::value, "a");
 
   Value v(ns::NamedStructCxx11{1, "Elena", "Campbell", Date(1970, 01, 01)});
   auto const p = internal::ToProto(v);
@@ -959,6 +979,33 @@ TEST(Value, NamedStructCxx11_Array) {
 
   auto const p = internal::ToProto(v);
 
+  google::spanner::v1::Type expected_type;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        code: ARRAY
+        array_element_type {
+          code: STRUCT
+          struct_type {
+            fields {
+              name: "id"
+              type { code: INT64 }
+            }
+            fields {
+              name: "FirstName"
+              type { code: STRING }
+            }
+            fields {
+              name: "LastName"
+              type { code: STRING }
+            }
+            fields {
+              name: "BirthDate"
+              type { code: DATE }
+            }
+          }
+        })pb", &expected_type));
+  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
+
   google::protobuf::Value expected_value;
   ASSERT_TRUE(TextFormat::ParseFromString(
       R"pb(
@@ -982,6 +1029,104 @@ TEST(Value, NamedStructCxx11_Array) {
         })pb", &expected_value));
   EXPECT_THAT(p.second, IsProtoEqual(expected_value));
 }
+
+#if __cplusplus == 201703L
+TEST(Value, NamedStructCxx17_ToProto) {
+  static_assert(internal::IsNamedStruct<ns::NamedStructCxx17>::value, "a");
+
+  Value v(ns::NamedStructCxx17{1, "Elena", "Campbell"});
+  auto const p = internal::ToProto(v);
+  EXPECT_EQ(v, internal::FromProto(p.first, p.second));
+  EXPECT_EQ(google::spanner::v1::TypeCode::STRUCT, p.first.code());
+
+  google::spanner::v1::Type expected_type;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        code: STRUCT
+        struct_type {
+          fields {
+            name: "id"
+            type { code: INT64 }
+          }
+          fields {
+            name: "first_name"
+            type { code: STRING }
+          }
+          fields {
+            name: "last_name"
+            type { code: STRING }
+          }
+        })pb", &expected_type));
+  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
+
+  google::protobuf::Value expected_value;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        list_value {
+          values { string_value: "1" }
+          values { string_value: "Elena" }
+          values { string_value: "Campbell" }
+        })pb", &expected_value));
+  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+}
+
+TEST(Value, NamedStructCxx17_Array) {
+  std::vector<ns::NamedStructCxx17> array{
+      {1, "Elena", "Campbell"},
+      {2, "Gabriel", "Wright"},
+  };
+  Value v(array);
+  auto extracted = v.get<std::vector<ns::NamedStructCxx17>>();
+  EXPECT_STATUS_OK(extracted);
+  EXPECT_THAT(*extracted, ::testing::ElementsAreArray(array));
+
+  auto const p = internal::ToProto(v);
+  google::spanner::v1::Type expected_type;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        code: ARRAY
+        array_element_type {
+          code: STRUCT
+          struct_type {
+            fields {
+              name: "id"
+              type { code: INT64 }
+            }
+            fields {
+              name: "first_name"
+              type { code: STRING }
+            }
+            fields {
+              name: "last_name"
+              type { code: STRING }
+            }
+          }
+        })pb", &expected_type));
+  EXPECT_THAT(p.first, IsProtoEqual(expected_type));
+
+  google::protobuf::Value expected_value;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        list_value {
+          values {
+            list_value {
+              values { string_value: "1" }
+              values { string_value: "Elena" }
+              values { string_value: "Campbell" }
+            }
+          }
+          values {
+            list_value {
+              values { string_value: "2" }
+              values { string_value: "Gabriel" }
+              values { string_value: "Wright" }
+            }
+          }
+        })pb", &expected_value));
+  EXPECT_THAT(p.second, IsProtoEqual(expected_value));
+}
+
+#endif  // __cplusplus == 201703L
 
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner
