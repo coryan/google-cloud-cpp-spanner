@@ -285,11 +285,6 @@ function (spanner_client_define_tests)
         add_test(NAME ${target} COMMAND ${target})
         add_dependencies(spanner-client-tests ${target})
     endforeach ()
-    if (NOT MSVC)
-        # stdlibc++ defines `std::tuple_size<>` as both a struct and a class.
-        target_compile_options(value_test PRIVATE "-Wno-mismatched-tags")
-        target_compile_options(internal_tuple_utils_test PRIVATE "-Wno-mismatched-tags")
-    endif ()
 endfunction ()
 
 # Only define the tests if testing is enabled. Package maintainers may not want

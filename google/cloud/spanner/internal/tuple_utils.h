@@ -34,12 +34,7 @@ struct NumElementsImpl : std::integral_constant<int, 0> {};
 template <typename T>
 struct NumElementsImpl<T, decltype(void(std::tuple_size<T>::value))>
     : public std::tuple_size<T> {};
-}  // namespace internal
-}  // namespace SPANNER_CLIENT_NS
-}  // namespace spanner
 
-namespace spanner_extensions {
-inline namespace SPANNER_CLIENT_NS {
 /**
  * A metafunction that returns the number of elements in a named structure.
  *
@@ -71,13 +66,6 @@ template <typename T>
 struct NumElements
     : public spanner::internal::NumElementsImpl<typename std::decay<T>::type,
                                                 void> {};
-}  // namespace SPANNER_CLIENT_NS
-}  // namespace spanner_extensions
-
-namespace spanner {
-inline namespace SPANNER_CLIENT_NS {
-namespace internal {
-using spanner_extensions::NumElements;
 
 /**
  * The default implementation for GetElementName().

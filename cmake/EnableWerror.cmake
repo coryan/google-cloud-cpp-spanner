@@ -17,20 +17,22 @@
 # Find out what flags turn on all available warnings and turn those warnings
 # into errors.
 include(CheckCXXCompilerFlag)
-check_cxx_compiler_flag(-Wall GOOGLE_CLOUD_CPP_COMPILER_SUPPORTS_WALL)
-check_cxx_compiler_flag(-Wextra GOOGLE_CLOUD_CPP_COMPILER_SUPPORTS_WEXTRA)
-check_cxx_compiler_flag(-Werror GOOGLE_CLOUD_CPP_COMPILER_SUPPORTS_WERROR)
+
+function(google_cloud_cpp_add_option_if_supported target scope option)
+    check_cxx_compiler_flag("${option}" option_is_supported)
+    if (option_is_supported)
+        target_compile_options("${target}" "${scope}" "${option}")
+    endif ()
+endfunction ()
 
 function (google_cloud_cpp_add_common_options target)
-    if (GOOGLE_CLOUD_CPP_COMPILER_SUPPORTS_WALL)
-        target_compile_options(${target} PRIVATE "-Wall")
-    endif ()
-    if (GOOGLE_CLOUD_CPP_COMPILER_SUPPORTS_WEXTRA)
-        target_compile_options(${target} PRIVATE "-Wextra")
-    endif ()
-    if (GOOGLE_CLOUD_CPP_COMPILER_SUPPORTS_WERROR)
-        target_compile_options(${target} PRIVATE "-Werror")
-    endif ()
+    # Enable -Wall -Wextra and -Werror
+    # Disable -Wmismatched-tags because libstdc++ defines `std::tuple_size` as
+    # both a `struct` and a `class` template. If the flag is enabled it is impossible
+    # to specialize this type.
+    foreach (option "-Wall" "-Wextra" "-Wno-mismatched-tags" "-Werror")
+        google_cloud_cpp_add_option_if_supported("${target}" PRIVATE "${option}")
+    endforeach()
     if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU"
         AND "${CMAKE_CXX_COMPILER_VERSION}" VERSION_LESS 5.0)
         # With GCC 4.x this warning is too noisy to be useful.
