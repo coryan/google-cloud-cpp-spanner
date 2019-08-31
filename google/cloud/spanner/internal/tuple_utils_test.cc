@@ -362,24 +362,49 @@ TEST(TupleUtils, HasNumElements) {
 }
 
 #if 0
+TEST(TupleUtils, AllElementNames) {
+  // These should succeed at compile time, we are verifying that the types work.
+  static_assert(!internal::AllElementNamesAreStrings<bool>::value,
+                "HasNumElements<bool> should be false");
+  static_assert(!internal::AllElementNamesAreStrings<std::tuple<int, int, int>>::value,
+                "Mismatched NumElements value");
+  static_assert(!internal::AllElementNamesAreStrings<std::pair<int, std::string>>::value,
+                "Mismatched NumElements value");
+
+  static_assert(internal::AllElementNamesAreStrings<ns2::LacksNumElements>::value,
+                "HasNumElements<LacksNumElements> should be false");
+  static_assert(!internal::AllElementNamesAreStrings<ns2::InvalidGetElementName>::value,
+                "HasNumElements<LacksNumElements> should be false");
+
+  static_assert(internal::AllElementNamesAreStrings<ns1::NamedStructViaAdl>::value,
+                "ns1::NamedStructViaAdl should be a named struct");
+  static_assert(internal::AllElementNamesAreStrings<ns1::NamedStructViaMembers>::value,
+                "ns1::NamedStructViaMembers should be a named struct");
+
+}
+#else
 TEST(TupleUtils, IsNamedStruct) {
   // These should succeed at compile time, we are verifying that the types work.
-  static_assert(internal::IsNamedStruct<bool>::value == false,
-                "bool should not be a NamedStruct");
+  static_assert(!internal::IsNamedStruct<bool>::value,
+                "IsNamedStruct<bool> should be false");
   static_assert(
-      internal::IsNamedStruct<std::pair<int, std::string>>::value == false,
-      "std::pair<> should not be a NamedStruct");
-  static_assert(internal::IsNamedStruct<
-                    std::tuple<int, std::string, std::string>>::value == false,
-                "std::tuple<> should not be a NamedStruct");
+      !internal::IsNamedStruct<std::pair<int, std::string>>::value,
+      "IsNamedStruct<std::pair<..>> should be false");
+  static_assert(!internal::IsNamedStruct<
+                    std::tuple<int, std::string, std::string>>::value,
+                "IsNamedStruct<std::tuple<..>> should be false");
+
+  static_assert(!internal::IsNamedStruct<ns2::LacksNumElements>::value,
+                "IsNamedStruct<LacksNumElements> should be false");
+  static_assert(!internal::IsNamedStruct<ns2::InvalidGetElementName>::value,
+                "IsNamedStruct<LacksNumElements> should be false");
 
   static_assert(internal::IsNamedStruct<ns1::NamedStructViaAdl>::value,
-                "ns1::NamedStructViaAdl should be a named struct");
+                "IsNamedStruct<ns1::NamedStructViaAdl> should be true");
   static_assert(internal::IsNamedStruct<ns1::NamedStructViaMembers>::value,
-                "ns1::NamedStructViaMembers should be a named struct");
+                "IsNamedStruct<ns1::NamedStructViaMembers> should be true");
 }
 #endif
-
 }  // namespace SPANNER_CLIENT_NS
 }  // namespace spanner
 }  // namespace cloud

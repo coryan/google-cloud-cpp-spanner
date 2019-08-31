@@ -40,14 +40,14 @@ auto GetElementName(T const& t) -> decltype(t.template get_element_name<N>()) {
   return t.template get_element_name<N>();
 }
 
-// The default implementation, using `std::tuple_size<T>`
-template <typename T>
-struct NumElementsImpl : public std::tuple_size<T> {};
+// The default case for SFINAE. The constant type is not `std::size_t`.
+template <typename T, typename AlwaysVoid>
+struct NumElementsImpl : std::integral_constant<int, 0> {};
 
-// Specialize for tuple-like types.
-template <template <typename...> class T, typename... Ts>
-struct NumElementsImpl<T<Ts...>>
-    : public std::integral_constant<std::size_t, sizeof...(Ts)> {};
+// Specialize for any type that has specialized `std::tuple_size<T>`
+template <typename T>
+struct NumElementsImpl<T, decltype(void(std::tuple_size<T>::value))>
+    : public std::tuple_size<T> {};
 
 /**
  * A metafunction that returns the number of elements in a named structure.
@@ -64,7 +64,7 @@ struct NumElementsImpl<T<Ts...>>
  * @endcode
  */
 template <typename T>
-using NumElements = NumElementsImpl<typename std::decay<T>::type>;
+using NumElements = NumElementsImpl<typename std::decay<T>::type, void>;
 
 // Similar to `std::get<I>(std::tuple)`, except that this function is an
 // extension point for `ForEach` (below) that callers can define in their own
@@ -134,32 +134,52 @@ typename std::enable_if<(I < NumElements<T>::value), void>::type ForEachNamed(
                       std::forward<Args>(args)...);
 }
 
-template <typename T>
-struct NumElementsInvoker {
-  auto operator()(T const& s) -> decltype(NumElements<T>::value);
-};
-
 template <typename AlwaysVoid, typename T>
 struct HasNumElementsImpl : public std::false_type {};
 
 template <typename T>
-struct HasNumElementsImpl<decltype(void(NumElementsInvoker(std::declval<T>()))),
-                          T> : public std::true_type {};
+struct HasNumElementsImpl<decltype(void(NumElements<T>::value)), T>
+    : public std::true_type {};
 
 template <typename T>
 struct HasNumElements
-    : public HasNumElementsImpl<void, typename std::decay<T>::type> {};
+    : public std::conditional<
+          HasNumElementsImpl<void, T>::value,
+          std::is_same<std::size_t, typename std::decay<decltype(
+                                        NumElements<T>::value)>::type>,
+          std::false_type>::type {};
 
-template <typename T, std::size_t I>
+template <typename T, std::size_t I, typename AlwaysVoid>
 struct GetElementNameInvoker {
-  auto operator()(T const& s) -> decltype(GetElementName<I>(s));
+  void operator()() const;
 };
 
 template <typename T, std::size_t I>
+struct GetElementNameInvoker<
+    T, I, decltype(void(GetElementName<I>(std::declval<T const&>())))> {
+  auto operator()(T const& s) const -> decltype(GetElementName<I>(s));
+};
+
+template <typename T, std::size_t I>
+struct HasElementName : public google::cloud::internal::is_invocable<
+                            GetElementNameInvoker<T, I, void>, T const&> {};
+
+template <typename T, std::size_t I>
+struct HasAllElementNamesImpl;
+template <typename T>
+struct HasAllElementNamesImpl<T, 0> : public HasElementName<T, 0> {};
+template <typename T, std::size_t I>
+struct HasAllElementNamesImpl
+    : public std::conditional<HasElementName<T, I>::value,
+                              HasAllElementNamesImpl<T, I - 1>,
+                              std::false_type>::type {};
+
+template <typename T, std::size_t I>
 struct ElementNameIsConvertibleToString
-    : public std::is_convertible<google::cloud::internal::invoke_result_t<
-                                     GetElementNameInvoker<T, I>, T const&>,
-                                 std::string> {};
+    : public std::is_convertible<
+          google::cloud::internal::invoke_result_t<
+              GetElementNameInvoker<T, I, void>, T const&>,
+          std::string> {};
 
 template <typename T, std::size_t I>
 struct AllElementNamesAreStringsImpl;
@@ -170,13 +190,16 @@ struct AllElementNamesAreStringsImpl<T, 0>
 
 template <typename T, std::size_t I>
 struct AllElementNamesAreStringsImpl
-    : public std::integral_constant<
-          bool, ElementNameIsConvertibleToString<T, I>::value &&
-                    AllElementNamesAreStringsImpl<T, I - 1>::value> {};
+    : public std::conditional<ElementNameIsConvertibleToString<T, I>::value,
+                              ElementNameIsConvertibleToString<T, I - 1>,
+                              std::false_type>::type {};
 
 template <typename T>
 struct AllElementNamesAreStrings
-    : public AllElementNamesAreStringsImpl<T, NumElements<T>::value> {};
+    : public std::conditional<
+          HasAllElementNamesImpl<T, NumElements<T>::value>::value,
+          AllElementNamesAreStringsImpl<T, NumElements<T>::value>,
+          std::false_type>::type {};
 
 template <typename T>
 struct IsNamedStruct : public std::conditional<HasNumElements<T>::value,
