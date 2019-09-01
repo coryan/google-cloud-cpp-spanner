@@ -431,23 +431,46 @@ void QueryDataWithStruct(google::cloud::spanner::Client client) {
 }
 //! [END spanner_query_data_with_struct]
 
+// [START spanner_create_array_of_struct_with_data]
+struct SingerName {
+  std::string first_name;
+  std::string last_name;
+};
+
+template <std::size_t I>
+char const* GetElementName(SingerName const&) {
+  static char const* names[] = {"FirstName", "LastName"};
+  static_assert(I < sizeof(names) / sizeof(names[0]), "Index out of range");
+  return names[I];
+}
+template <std::size_t I>
+std::string const& GetElement(SingerName const& v) {
+  return std::get<I>(std::tie(v.first_name, v.last_name));
+}
+template <std::size_t I>
+std::string& GetElement(SingerName& v) {
+  return std::get<I>(std::tie(v.first_name, v.last_name));
+}
+// [END spanner_create_array_of_struct_with_data]
+
+} // namespace
+
+// [START spanner_create_array_of_struct_with_data]
+namespace std {
+template <>
+struct tuple_size<SingerName> : public std::integral_constant<std::size_t, 2> {};
+}  // namespace std
+// [END spanner_create_array_of_struct_with_data]
+
+namespace {
 //! [START spanner_query_data_with_array_of_struct]
 void QueryDataWithArrayOfStruct(google::cloud::spanner::Client client) {
   namespace spanner = google::cloud::spanner;
   // [START spanner_create_array_of_struct_with_data]
-  // Cloud Spanner STRUCT<> types with named fields are represented by
-  // std::tuple<std::pair<std::string, T>...>, create an alias to make it easier
-  // to follow this code.
-  using SingerName = std::tuple<std::pair<std::string, std::string>,
-                                std::pair<std::string, std::string>>;
-  auto make_name = [](std::string first_name, std::string last_name) {
-    return std::make_tuple(std::make_pair("FirstName", std::move(first_name)),
-                           std::make_pair("LastName", std::move(last_name)));
-  };
   std::vector<SingerName> singer_info{
-      make_name("Elena", "Campbell"),
-      make_name("Gabriel", "Wright"),
-      make_name("Benjamin", "Martinez"),
+      SingerName{"Elena", "Campbell"},
+      SingerName{"Gabriel", "Wright"},
+      SingerName{"Benjamin", "Martinez"},
   };
   // [END spanner_create_array_of_struct_with_data]
 
@@ -471,11 +494,7 @@ void QueryDataWithArrayOfStruct(google::cloud::spanner::Client client) {
 void FieldAccessOnStructParameters(google::cloud::spanner::Client client) {
   namespace spanner = google::cloud::spanner;
 
-  // Cloud Spanner STRUCT<> with named fields is represented as
-  // tuple<pair<string, T>...>. Create a type alias for this example:
-  using SingerName = std::tuple<std::pair<std::string, std::string>,
-                                std::pair<std::string, std::string>>;
-  SingerName name({"FirstName", "Elena"}, {"LastName", "Campbell"});
+  SingerName name{"Elena", "Campbell"};
 
   auto reader = client.ExecuteSql(spanner::SqlStatement(
       "SELECT SingerId FROM Singers WHERE FirstName = @name.FirstName",
@@ -492,30 +511,47 @@ void FieldAccessOnStructParameters(google::cloud::spanner::Client client) {
 //! [END spanner_field_access_on_struct_parameters]
 
 //! [START spanner_field_access_on_nested_struct]
+struct SongInfo {
+  std::string song_name;
+  std::vector<SingerName> artist_names;
+};
+//! [END spanner_field_access_on_nested_struct]
+
+template <std::size_t I>
+char const* GetElementName(SongInfo const&) {
+  static char const* names[] = {"SongName", "ArtistNames"};
+  static_assert(I < sizeof(names) / sizeof(names[0]), "Index out of range");
+  return names[I];
+}
+template <std::size_t I>
+std::string const& GetElement(SongInfo const& v) {
+  return std::get<I>(std::tie(v.song_name, v.artist_names));
+}
+template <std::size_t I>
+std::string& GetElement(SongInfo& v) {
+  return std::get<I>(std::tie(v.song_name, v.artist_names));
+}
+}
+
+namespace std {
+template <>
+struct tuple_size<SongInfo> : public std::integral_constant<std::size_t, 2> {};
+}  // namespace std
+
+namespace {
+//! [START spanner_field_access_on_nested_struct]
 void FieldAccessOnNestedStruct(google::cloud::spanner::Client client) {
   namespace spanner = google::cloud::spanner;
 
-  // Cloud Spanner STRUCT<> with named fields is represented as
-  // tuple<pair<string, T>...>. Create a type alias for this example:
-  using SingerFullName = std::tuple<std::pair<std::string, std::string>,
-                                    std::pair<std::string, std::string>>;
-  auto make_name = [](std::string fname, std::string lname) {
-    return SingerFullName({"FirstName", std::move(fname)},
-                          {"LastName", std::move(lname)});
-  };
-  using SongInfo =
-      std::tuple<std::pair<std::string, std::string>,
-                 std::pair<std::string, std::vector<SingerFullName>>>;
-  auto songinfo = SongInfo(
+  SongInfo song_info{
       {"SongName", "Imagination"},
-      {"ArtistNames",
-       {make_name("Elena", "Campbell"), make_name("Hannah", "Harris")}});
+      {SingerName{"Elena", "Campbell"}, SingerName{"Hannah", "Harris"}}};
 
   auto reader = client.ExecuteSql(spanner::SqlStatement(
       "SELECT SingerId, @songinfo.SongName FROM Singers"
       " WHERE STRUCT<FirstName STRING, LastName STRING>(FirstName, LastName)"
       "    IN UNNEST(@songinfo.ArtistNames)",
-      {{"songinfo", spanner::Value(songinfo)}}));
+      {{"songinfo", spanner::Value(song_info)}}));
   if (!reader) throw std::runtime_error(reader.status().message());
 
   for (auto row : reader->Rows<std::int64_t, std::string>()) {
