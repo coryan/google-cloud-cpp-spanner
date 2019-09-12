@@ -258,7 +258,6 @@ TEST_F(RpcFailureThresholdTest, ExecuteSqlDeleteErrors) {
   CheckEstimatedFailureRateBelowThreshold(accumulated);
 }
 
-/// Run a single copy of the experiment
 Result RunRoundRobinExperiment(Database const& db, int iterations,
                                std::function<Status(Client)> experiment) {
   // Use a different client on each thread because we do not want to share
@@ -284,6 +283,31 @@ Result RunRoundRobinExperiment(Database const& db, int iterations,
     if (i % report == 0) std::cout << '.' << std::flush;
     Client client = clients[i % clients.size()];
 
+    result.Update(experiment(client));
+  }
+
+  return result;
+}
+
+Result SingleClientExperiment(Database const& db, int iterations,
+                               std::function<Status(Client)> experiment) {
+  // Use a different client on each thread because we do not want to share
+  // sessions, also ensure that each of these clients has a different pool of
+  // gRPC channels.
+  std::string const pool = [] {
+    std::ostringstream os;
+    os << "thread-pool:" << std::this_thread::get_id();
+    return std::move(os).str();
+  }();
+
+  Client client(
+        MakeConnection(db, ConnectionOptions().set_channel_pool_domain(pool)));
+
+  Result result;
+
+  int const report = iterations / 5;
+  for (int i = 0; i != iterations; ++i) {
+    if (i % report == 0) std::cout << '.' << std::flush;
     result.Update(experiment(client));
   }
 
@@ -350,14 +374,38 @@ Result RunParallelExperiments(
   return accumulated;
 }
 
+TEST_F(RpcFailureThresholdTest, SingleClientWithoutRetry) {
+  ASSERT_TRUE(db_);
+
+  auto round_robin_simple_delete = [](Database const& db, int iterations) {
+    auto simple_delete = [](Client client) {
+      auto txn = MakeReadWriteTransaction();
+      auto delete_status =
+          client.ExecuteSql(txn, SqlStatement("DELETE FROM Singers WHERE true"));
+      if (!delete_status) return std::move(delete_status).status();
+      auto commit_status =
+          client.Commit(txn, {});
+      return std::move(commit_status).status();
+    };
+    return SingleClientExperiment(db, iterations, simple_delete);
+  };
+
+  auto result = RunParallelExperiments(*db_, round_robin_simple_delete);
+  CheckEstimatedFailureRateBelowThreshold(result);
+}
+
 TEST_F(RpcFailureThresholdTest, RoundRobinWithoutRetry) {
   ASSERT_TRUE(db_);
 
   auto round_robin_simple_delete = [](Database const& db, int iterations) {
     auto simple_delete = [](Client client) {
+      auto txn = MakeReadWriteTransaction();
       auto delete_status =
-          client.ExecuteSql(SqlStatement("DELETE FROM Singers WHERE true"));
-      return std::move(delete_status).status();
+          client.ExecuteSql(txn, SqlStatement("DELETE FROM Singers WHERE true"));
+      if (!delete_status) return std::move(delete_status).status();
+      auto commit_status =
+          client.Commit(txn, {});
+      return std::move(commit_status).status();
     };
     return RunRoundRobinExperiment(db, iterations, simple_delete);
   };
