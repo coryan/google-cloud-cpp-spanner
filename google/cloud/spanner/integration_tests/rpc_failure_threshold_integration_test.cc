@@ -90,8 +90,23 @@ class RpcFailureThresholdTest : public ::testing::Test {
 };
 
 struct Result {
-  int number_of_successes;
-  int number_of_failures;
+  int number_of_successes = 0;
+  int number_of_failures = 0;
+
+  void Update(Status const& status) {
+    if (status.ok()) {
+      ++number_of_successes;
+    } else {
+      ++number_of_failures;
+      std::cout << status << "\n";
+    }
+  }
+
+  Result& operator+=(Result const& lhs) {
+    number_of_successes += lhs.number_of_successes;
+    number_of_failures += lhs.number_of_failures;
+    return *this;
+  }
 };
 
 /// Run a single copy of the experiment
@@ -108,18 +123,7 @@ Result RunExperiment(Database const& db, int iterations) {
   Client client(
       MakeConnection(db, ConnectionOptions().set_channel_pool_domain(pool)));
 
-  int number_of_successes = 0;
-  int number_of_failures = 0;
-
-  auto update_trials = [&number_of_failures,
-                        &number_of_successes](Status const& status) {
-    if (status.ok()) {
-      ++number_of_successes;
-    } else {
-      ++number_of_failures;
-      std::cout << status << "\n";
-    }
-  };
+  Result result;
 
   int const report = iterations / 5;
   for (int i = 0; i != iterations; ++i) {
@@ -132,10 +136,43 @@ Result RunExperiment(Database const& db, int iterations) {
           if (!status) return std::move(status).status();
           return Mutations{};
         });
-    update_trials(delete_status.status());
+    result.Update(delete_status.status());
   }
 
-  return Result{number_of_successes, number_of_failures};
+  return result;
+}
+
+void CheckEstimatedFailureRateBelowThreshold(Result const& result) {
+  // We are using the approximation via a normal distribution from here:
+  //   https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+  // we select $\alpha$ as $1/1000$ because we want a very high confidence in
+  // the failure rate. The approximation above requires the normal distribution
+  // quantile, which we obtained using R, and the expression
+  //   `qnorm(1 - (1/100.0)/2)`
+  // which yields:
+  double const z = 2.575829;
+
+  // We are willing to tolerate one failure in 1,000 requests.
+  double const threshold = 1 / 1000.0;
+
+  double const number_of_trials =
+      result.number_of_failures + result.number_of_successes;
+  double const mid = result.number_of_successes / number_of_trials;
+  double const r = z / number_of_trials *
+      std::sqrt(result.number_of_failures / number_of_trials *
+          result.number_of_successes);
+  std::cout << "Total failures = " << result.number_of_failures
+            << "\nTotal successes = " << result.number_of_successes
+            << "\nTotal trials = " << number_of_trials
+            << "\nEstimated 99% confidence interval for success rate is ["
+            << (mid - r) << "," << (mid + r) << "]\n";
+
+  EXPECT_GT(mid - r, 1.0 - threshold)
+            << " number_of_failures=" << result.number_of_failures
+            << ", number_of_successes=" << result.number_of_successes
+            << ", number_of_trials=" << number_of_trials << ", mid=" << mid
+            << ", r=" << r << ", range=[ " << (mid - r) << " , " << (mid + r) << "]"
+            << ", kTheshold=" << threshold;
 }
 
 /**
@@ -166,18 +203,6 @@ Result RunExperiment(Database const& db, int iterations) {
  */
 TEST_F(RpcFailureThresholdTest, ExecuteSqlDeleteErrors) {
   ASSERT_TRUE(db_);
-
-  // We are using the approximation via a normal distribution from here:
-  //   https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
-  // we select $\alpha$ as $1/1000$ because we want a very high confidence in
-  // the failure rate. The approximation above requires the normal distribution
-  // quantile, which we obtained using R, and the expression
-  //   `qnorm(1 - (1/100.0)/2)`
-  // which yields:
-  double const z = 2.575829;
-
-  // We are willing to tolerate one failure in 1,000 requests.
-  double const threshold = 1 / 1000.0;
 
   // Detecting if the failure rate is higher than 1 / 1,000 when we observe some
   // other rate requires some power analysis to ensure the sample size is large
@@ -217,8 +242,7 @@ TEST_F(RpcFailureThresholdTest, ExecuteSqlDeleteErrors) {
 
   auto const iterations = static_cast<int>(desired_samples / number_of_threads);
 
-  int number_of_successes = 0;
-  int number_of_failures = 0;
+  Result accumulated;
 
   std::vector<std::future<Result>> tasks(number_of_threads);
   std::cout << "Running test " << std::flush;
@@ -227,28 +251,119 @@ TEST_F(RpcFailureThresholdTest, ExecuteSqlDeleteErrors) {
   });
   for (auto& t : tasks) {
     auto r = t.get();
-    number_of_successes += r.number_of_successes;
-    number_of_failures += r.number_of_failures;
+    accumulated += r;
   }
   std::cout << " DONE\n";
 
-  double const number_of_trials = number_of_failures + number_of_successes;
-  double const mid = number_of_successes / number_of_trials;
-  double const r =
-      z / number_of_trials *
-      std::sqrt(number_of_failures / number_of_trials * number_of_successes);
-  std::cout << "Total failures = " << number_of_failures
-            << "\nTotal successes = " << number_of_successes
-            << "\nTotal trials = " << number_of_trials
-            << "\nEstimated 99% confidence interval for success rate is ["
-            << (mid - r) << "," << (mid + r) << "]\n";
+  CheckEstimatedFailureRateBelowThreshold(accumulated);
+}
 
-  EXPECT_GT(mid - r, 1.0 - threshold)
-      << " number_of_failures=" << number_of_failures
-      << ", number_of_successes=" << number_of_successes
-      << ", number_of_trials=" << number_of_trials << ", mid=" << mid
-      << ", r=" << r << ", range=[ " << (mid - r) << " , " << (mid + r) << "]"
-      << ", kTheshold=" << threshold;
+/// Run a single copy of the experiment
+Result RunRoundRobinExperiment(Database const& db, int iterations,
+                               std::function<Status(Client)> experiment) {
+  // Use a different client on each thread because we do not want to share
+  // sessions, also ensure that each of these clients has a different pool of
+  // gRPC channels.
+  std::string const thread_name = [] {
+    std::ostringstream os;
+    os << "thread-pool:" << std::this_thread::get_id();
+    return std::move(os).str();
+  }();
+
+  std::vector<Client> clients;
+  for (int i = 0; i != 10; ++i) {
+    std::string pool = thread_name + "/" + std::to_string(i);
+    clients.push_back(Client(
+        MakeConnection(db, ConnectionOptions().set_channel_pool_domain(pool))));
+  }
+
+  Result result;
+
+  int const report = iterations / 5;
+  for (int i = 0; i != iterations; ++i) {
+    if (i % report == 0) std::cout << '.' << std::flush;
+    Client client = clients[i % clients.size()];
+
+    result.Update(experiment(client));
+  }
+
+  return result;
+}
+
+Result RunParallelExperiments(
+    Database const& db,
+    std::function<Result(Database const& db, int iterations)> const&
+        experiment_runner) {
+  // Detecting if the failure rate is higher than 1 / 1,000 when we observe some
+  // other rate requires some power analysis to ensure the sample size is large
+  // enough. Fortunately, R has a function to do precisely this:
+  //
+  // ```R
+  // require(pwr)
+  // pwr.p.test(
+  //     h=ES.h(p1=0.002, p2=0.001),
+  //     power=0.99, sig.level=0.01, alternative="greater")
+  // proportion power calculation for binomial distribution
+  // (arcsine transformation)
+  //
+  //      h = 0.02621646
+  //      n = 31496.42
+  //      sig.level = 0.01
+  //      power = 0.99
+  //      alternative = greater
+  // ```
+  //
+  // This reads: you need 31,496 samples to reliably (99% power) detect an
+  // effect of 2 failures per 1,000 when your null hypothesis is 1 per 1,000 and
+  // you want to use a significance level of 1%.
+  //
+  // In practice this means running the test for about 3 minutes on a server
+  // with 4 cores.
+
+  int const desired_samples = 32000;  // slightly higher sample rate.
+
+  auto const threads_per_core = 8;
+  // GCC and Clang default capture constants, but MSVC does not, so pass the
+  // constant as an argument.
+  auto const number_of_threads = [](int tpc) -> unsigned {
+    auto number_of_cores = std::thread::hardware_concurrency();
+    return number_of_cores == 0 ? tpc : number_of_cores * tpc;
+  }(threads_per_core);
+
+  auto const iterations = static_cast<int>(desired_samples / number_of_threads);
+
+  Result accumulated;
+
+  std::vector<std::future<Result>> tasks(number_of_threads);
+  std::cout << "Running test " << std::flush;
+  std::generate_n(tasks.begin(), number_of_threads,
+                  [db, iterations, experiment_runner] {
+                    return std::async(std::launch::async, experiment_runner, db,
+                                      iterations);
+                  });
+  for (auto& t : tasks) {
+    auto r = t.get();
+    accumulated += r;
+  }
+  std::cout << " DONE\n";
+
+  return accumulated;
+}
+
+TEST_F(RpcFailureThresholdTest, RoundRobinWithoutRetry) {
+  ASSERT_TRUE(db_);
+
+  auto round_robin_simple_delete = [](Database const& db, int iterations) {
+    auto simple_delete = [](Client client) {
+      auto delete_status =
+          client.ExecuteSql(SqlStatement("DELETE FROM Singers WHERE true"));
+      return std::move(delete_status).status();
+    };
+    return RunRoundRobinExperiment(db, iterations, simple_delete);
+  };
+
+  auto result = RunParallelExperiments(*db_, round_robin_simple_delete);
+  CheckEstimatedFailureRateBelowThreshold(result);
 }
 
 }  // namespace
