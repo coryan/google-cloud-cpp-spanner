@@ -2184,6 +2184,43 @@ void PartitionQuery(google::cloud::spanner::Client client) {
   //! [execute-sql-query-partition]
 }
 
+void GetGreetings(google::cloud::spanner::Client client) {
+  namespace spanner = ::google::cloud::spanner;
+  auto rows =
+      client.ExecuteQuery(spanner::SqlStatement("SELECT * FROM Greetings"));
+  bool first_row = true;
+  for (auto const& row : rows) {
+    if (first_row) {
+      char const* sep = "";
+      auto const& columns = row.value().columns();
+      for (auto& c : columns) {
+        std::cout << sep << c;
+        sep = "\t";
+      }
+      std::cout << "\n";
+      first_row = false;
+    }
+    auto const& values = row.value().values();
+    char const* sep = "";
+    for (auto& v : values) {
+      std::cout << sep << v;
+      sep = "\t";
+    }
+    std::cout << "\n";
+  }
+}
+
+void GetGreetingsAsString(google::cloud::spanner::Client client) {
+  namespace spanner = ::google::cloud::spanner;
+  auto rows =
+      client.ExecuteQuery(spanner::SqlStatement("SELECT text FROM Greetings"));
+  std::cout << "text\n";
+  using RowType = std::tuple<std::string>;
+  for (auto const& row : spanner::StreamOf<RowType>(rows)) {
+    std::cout << std::get<0>(row.value()) << "\n";
+  }
+}
+
 int RunOneCommand(std::vector<std::string> argv) {
   using CommandType = std::function<void(std::vector<std::string> const&)>;
 
@@ -2227,6 +2264,8 @@ int RunOneCommand(std::vector<std::string> argv) {
   };
 
   CommandMap commands = {
+      make_command_entry("get-greetings", GetGreetings),
+      make_command_entry("get-gretings-as-string", GetGreetingsAsString),
       {"get-instance", GetInstanceCommand},
       {"create-instance", CreateInstanceCommand},
       {"update-instance", UpdateInstanceCommand},
