@@ -2265,7 +2265,7 @@ int RunOneCommand(std::vector<std::string> argv) {
 
   CommandMap commands = {
       make_command_entry("get-greetings", GetGreetings),
-      make_command_entry("get-gretings-as-string", GetGreetingsAsString),
+      make_command_entry("get-greetings-as-string", GetGreetingsAsString),
       {"get-instance", GetInstanceCommand},
       {"create-instance", CreateInstanceCommand},
       {"update-instance", UpdateInstanceCommand},
