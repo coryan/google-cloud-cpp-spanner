@@ -35,7 +35,8 @@ function (spanner_client_define_integration_tests)
         data_types_integration_test.cc
         database_admin_integration_test.cc
         instance_admin_integration_test.cc
-        rpc_failure_threshold_integration_test.cc)
+        rpc_failure_threshold_integration_test.cc
+        validate_session_refresh.cc)
 
     # Export the list of unit tests to a .bzl file so we do not need to maintain
     # the list in two places.
@@ -67,6 +68,7 @@ function (spanner_client_define_integration_tests)
         set_tests_properties(${target} PROPERTIES LABELS "integration-tests")
         add_dependencies(spanner-client-integration-tests ${target})
     endforeach ()
+    set_tests_properties(validate_session_refresh PROPERTIES LABELS "manual")
 
     # backup_integration_test sometimes takes long time
     set_tests_properties("backup_integration_test" PROPERTIES TIMEOUT 2400)
