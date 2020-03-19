@@ -65,7 +65,6 @@ std::unique_ptr<Client> ValidateSessionRefresh::client_;
 TEST_F(ValidateSessionRefresh, InsertAndCommit) {
   auto stub = internal::CreateDefaultSpannerStub(
       ConnectionOptions(grpc::InsecureChannelCredentials())
-          .set_endpoint("localhost:1")
           .enable_tracing("rpc"),
       /*channel_id=*/0);
   EXPECT_NE(stub, nullptr);
@@ -81,6 +80,8 @@ TEST_F(ValidateSessionRefresh, InsertAndCommit) {
         retry_policy.clone(), backoff_policy.clone(), /*is_idempotent=*/true,
         [&](grpc::ClientContext& context,
             google::spanner::v1::CreateSessionRequest const& request) {
+          std::cout << "Trying to create session: " << request.DebugString()
+                    << std::endl;
           return stub->CreateSession(context, request);
         },
         request, location);
@@ -94,8 +95,12 @@ TEST_F(ValidateSessionRefresh, InsertAndCommit) {
 
   auto session1 = create_session();
   ASSERT_STATUS_OK(session1);
+  std::cout << "Successfully created session 1: " << session1->DebugString()
+            << std::endl;
   auto session2 = create_session();
   ASSERT_STATUS_OK(session2);
+  std::cout << "Successfully created session 2: " << session2->DebugString()
+            << std::endl;
 
   namespace ch = std::chrono;
   auto const kTestDuration = ch::minutes(120);
