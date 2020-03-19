@@ -15,6 +15,7 @@
 #include "google/cloud/spanner/client.h"
 #include "google/cloud/spanner/database.h"
 #include "google/cloud/spanner/database_admin_client.h"
+#include "google/cloud/spanner/internal/retry_loop.h"
 #include "google/cloud/spanner/mutations.h"
 #include "google/cloud/spanner/testing/database_environment.h"
 #include "google/cloud/internal/getenv.h"
@@ -50,22 +51,9 @@ class ValidateSessionRefresh : public ::testing::Test {
     EXPECT_STATUS_OK(commit_result);
   }
 
-  static void InsertTwoSingers() {
-    auto commit_result = client_->Commit(Mutations{
-        InsertMutationBuilder("Singers", {"SingerId", "FirstName", "LastName"})
-            .EmplaceRow(1, "test-fname-1", "test-lname-1")
-            .EmplaceRow(2, "test-fname-2", "test-lname-2")
-            .Build()});
-    ASSERT_STATUS_OK(commit_result);
-  }
-
   static void TearDownTestSuite() { client_ = nullptr; }
 
  protected:
-  bool EmulatorUnimplemented(Status const& status) {
-    return emulator_ && status.code() == StatusCode::kUnimplemented;
-  }
-
   bool emulator_;
   static Database database_;
   static std::unique_ptr<Client> client_;
@@ -82,11 +70,20 @@ TEST_F(ValidateSessionRefresh, InsertAndCommit) {
       /*channel_id=*/0);
   EXPECT_NE(stub, nullptr);
 
+  auto const location = __func__;
   auto create_session = [&]() {
-    grpc::ClientContext context;
+    auto const retry_policy = LimitedTimeRetryPolicy(std::chrono::minutes(2));
+    auto const backoff_policy = ExponentialBackoffPolicy(
+        std::chrono::seconds(1), std::chrono::seconds(60), 2.0);
     google::spanner::v1::CreateSessionRequest request;
     request.set_database(database_.FullName());
-    return stub->CreateSession(context, request);
+    return internal::RetryLoop(
+        retry_policy.clone(), backoff_policy.clone(), /*is_idempotent=*/true,
+        [&](grpc::ClientContext& context,
+            google::spanner::v1::CreateSessionRequest const& request) {
+          return stub->CreateSession(context, request);
+        },
+        request, location);
   };
   auto poll_session = [&](std::string session_name) {
     grpc::ClientContext context;
