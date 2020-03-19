@@ -64,8 +64,7 @@ std::unique_ptr<Client> ValidateSessionRefresh::client_;
 
 TEST_F(ValidateSessionRefresh, InsertAndCommit) {
   auto stub = internal::CreateDefaultSpannerStub(
-      ConnectionOptions(grpc::InsecureChannelCredentials())
-          .enable_tracing("rpc"),
+      ConnectionOptions().enable_tracing("rpc"),
       /*channel_id=*/0);
   EXPECT_NE(stub, nullptr);
 
